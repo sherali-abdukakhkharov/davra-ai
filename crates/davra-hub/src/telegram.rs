@@ -158,6 +158,124 @@ pub fn parse_update(u: &Update) -> Option<Incoming> {
     })
 }
 
+/// A human member as Telegram knows them.
+pub struct TgPerson {
+    pub user_id: i64,
+    pub username: Option<String>,
+    pub name: String,
+}
+
+/// Members of the org mentioned in `text` that have a Telegram identity.
+pub async fn mentioned_people(
+    pool: &PgPool,
+    org_id: uuid::Uuid,
+    text: &str,
+) -> Result<std::collections::HashMap<String, TgPerson>> {
+    let handles = mentions::parse(text);
+    if handles.is_empty() {
+        return Ok(Default::default());
+    }
+    let rows: Vec<(String, i64, Option<String>, Option<String>)> = sqlx::query_as(
+        "select handle, tg_user_id, tg_username, display_name from members \
+         where org_id = $1 and kind = 'human' and handle = any($2) and tg_user_id is not null",
+    )
+    .bind(org_id)
+    .bind(&handles)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(handle, user_id, username, display)| {
+            let name = display.unwrap_or_else(|| handle.clone());
+            (
+                handle,
+                TgPerson {
+                    user_id,
+                    username,
+                    name,
+                },
+            )
+        })
+        .collect())
+}
+
+fn utf16_len(s: &str) -> usize {
+    s.encode_utf16().count()
+}
+
+/// Rewrites `@handle`s for Telegram. People with a username are mentioned by
+/// it (Telegram links and notifies). People without one get their name as a
+/// `text_mention` entity, which notifies them just the same. Offsets are in
+/// UTF-16 code units, as the Bot API requires.
+pub fn render_mentions(
+    text: &str,
+    people: &std::collections::HashMap<String, TgPerson>,
+) -> (String, Vec<serde_json::Value>) {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut entities = Vec::new();
+    let mut units = 0usize;
+    let mut i = 0;
+    let push = |out: &mut String, units: &mut usize, s: &str| {
+        out.push_str(s);
+        *units += utf16_len(s);
+    };
+    while i < chars.len() {
+        let c = chars[i];
+        let boundary = i == 0 || !(chars[i - 1].is_alphanumeric() || chars[i - 1] == '_');
+        if c == '@' && boundary {
+            let mut j = i + 1;
+            while j < chars.len()
+                && (chars[j].is_ascii_alphanumeric() || matches!(chars[j], '_' | '-' | '.'))
+            {
+                j += 1;
+            }
+            // A trailing dot ends the sentence, not the handle.
+            let mut end = j;
+            while end > i + 1 && chars[end - 1] == '.' {
+                end -= 1;
+            }
+            let raw: String = chars[i + 1..end].iter().collect();
+            if let Some(person) = people.get(&raw.to_ascii_lowercase()) {
+                match &person.username {
+                    Some(u) => push(&mut out, &mut units, &format!("@{u}")),
+                    None => {
+                        entities.push(json!({
+                            "type": "text_mention",
+                            "offset": units,
+                            "length": utf16_len(&person.name),
+                            "user": { "id": person.user_id, "is_bot": false, "first_name": person.name },
+                        }));
+                        push(&mut out, &mut units, &person.name);
+                    }
+                }
+                i = end;
+                continue;
+            }
+        }
+        let mut buf = [0u8; 4];
+        push(&mut out, &mut units, c.encode_utf8(&mut buf));
+        i += 1;
+    }
+    (out, entities)
+}
+
+/// Drops entities that a truncation cut off.
+fn entities_within(entities: &[serde_json::Value], text: &str) -> Vec<serde_json::Value> {
+    let total = utf16_len(text) as u64;
+    entities
+        .iter()
+        .filter(|e| {
+            let end = e["offset"]
+                .as_u64()
+                .unwrap_or(u64::MAX)
+                .saturating_add(e["length"].as_u64().unwrap_or(0));
+            end <= total
+        })
+        .cloned()
+        .collect()
+}
+
 fn is_command(text: &str, cmd: &str) -> bool {
     text.split_whitespace()
         .next()
@@ -215,8 +333,25 @@ impl Telegram {
         reply_to: Option<i64>,
         thread: Option<i64>,
     ) -> Result<i64> {
+        self.send_rich(chat_id, text, &[], reply_to, thread).await
+    }
+
+    /// Like `send`, with message entities (used for mentions of people who
+    /// have no Telegram username).
+    pub async fn send_rich(
+        &self,
+        chat_id: i64,
+        text: &str,
+        entities: &[serde_json::Value],
+        reply_to: Option<i64>,
+        thread: Option<i64>,
+    ) -> Result<i64> {
         let text = davra_core::format::truncate_chars(text, MAX_TG_CHARS);
         let mut body = json!({ "chat_id": chat_id, "text": text, "link_preview_options": { "is_disabled": true } });
+        let fits = entities_within(entities, &text);
+        if !fits.is_empty() {
+            body["entities"] = json!(fits);
+        }
         if let Some(r) = reply_to {
             body["reply_parameters"] =
                 json!({ "message_id": r, "allow_sending_without_reply": true });
@@ -233,10 +368,15 @@ impl Telegram {
         &self,
         chat_id: i64,
         text: &str,
+        entities: &[serde_json::Value],
         buttons: &[(String, String)],
     ) -> Result<i64> {
         let text = davra_core::format::truncate_chars(text, MAX_TG_CHARS);
         let mut body = json!({ "chat_id": chat_id, "text": text, "link_preview_options": { "is_disabled": true } });
+        let fits = entities_within(entities, &text);
+        if !fits.is_empty() {
+            body["entities"] = json!(fits);
+        }
         if !buttons.is_empty() {
             let rows: Vec<serde_json::Value> = buttons
                 .iter()
@@ -488,6 +628,49 @@ mod tests {
             "message": { "message_id": 63, "date": 1, "chat": { "id": 1 }, "caption": "skrinshot" }
         }));
         assert_eq!(parse_update(&photo).unwrap().text, "skrinshot");
+    }
+
+    #[test]
+    fn mentions_for_telegram() {
+        let mut people = std::collections::HashMap::new();
+        people.insert(
+            "ali_9737".to_string(),
+            TgPerson {
+                user_id: 542,
+                username: Some("ali_9737".into()),
+                name: "LionAli".into(),
+            },
+        );
+        people.insert(
+            "gulom".to_string(),
+            TgPerson {
+                user_id: 42,
+                username: None,
+                name: "G'ulom".into(),
+            },
+        );
+        let (text, ents) =
+            render_mentions("🤖 bot\n@gulom va @Ali_9737, ko'ring. @unknown", &people);
+        assert_eq!(text, "🤖 bot\nG'ulom va @ali_9737, ko'ring. @unknown");
+        assert_eq!(ents.len(), 1);
+        // "🤖" is 2 UTF-16 units, so G'ulom starts at 2 + " bot\n".len() = 7.
+        assert_eq!(ents[0]["offset"], 7);
+        assert_eq!(ents[0]["length"], 6);
+        assert_eq!(ents[0]["user"]["id"], 42);
+        let (text, _) = render_mentions("rahmat @gulom.", &people);
+        assert_eq!(text, "rahmat G'ulom.");
+        let (text, ents) = render_mentions("mail a@gulom.uz", &people);
+        assert_eq!(text, "mail a@gulom.uz");
+        assert!(ents.is_empty());
+    }
+
+    #[test]
+    fn truncated_entities_are_dropped() {
+        let e = vec![
+            json!({ "offset": 0, "length": 3 }),
+            json!({ "offset": 10, "length": 5 }),
+        ];
+        assert_eq!(entities_within(&e, "abcdefghij").len(), 1);
     }
 
     #[test]

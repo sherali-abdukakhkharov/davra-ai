@@ -133,7 +133,9 @@ pub async fn ask(
             .enumerate()
             .map(|(i, o)| (o.clone(), callback_data(qid, i)))
             .collect();
-        match tg.send_with_buttons(chat, &text, &labels).await {
+        let people = crate::telegram::mentioned_people(&state.pool, p.org_id, &text).await?;
+        let (text, entities) = crate::telegram::render_mentions(&text, &people);
+        match tg.send_with_buttons(chat, &text, &entities, &labels).await {
             Ok(tg_id) => {
                 db::set_tg_ids(&state.pool, mid, tg_id, None).await?;
                 buttons = !labels.is_empty();

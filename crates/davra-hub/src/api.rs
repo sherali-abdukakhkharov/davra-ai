@@ -335,7 +335,22 @@ pub async fn relay(
     };
     let reply_tg = reply.and_then(|r| r.tg_message_id);
     let thread = reply.and_then(|r| r.tg_thread_id);
-    match tg.send(chat_id, text, reply_tg, thread).await {
+    // @handles become real Telegram mentions so people get notified.
+    let org: Option<uuid::Uuid> = sqlx::query_scalar("select org_id from messages where id = $1")
+        .bind(message_id)
+        .fetch_optional(&state.pool)
+        .await?;
+    let (text, entities) = match org {
+        Some(org) => {
+            let people = crate::telegram::mentioned_people(&state.pool, org, text).await?;
+            crate::telegram::render_mentions(text, &people)
+        }
+        None => (text.to_string(), vec![]),
+    };
+    match tg
+        .send_rich(chat_id, &text, &entities, reply_tg, thread)
+        .await
+    {
         Ok(tg_id) => {
             db::set_tg_ids(&state.pool, message_id, tg_id, thread).await?;
             Ok(true)

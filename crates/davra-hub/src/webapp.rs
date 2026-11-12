@@ -240,7 +240,12 @@ pub async fn complete_link(
     let projects: Vec<String> = projects;
     let rename_note = match (renamed.is_empty(), tg_username) {
         (false, Some(u)) => format!("\nYour name in Davra is now @{}.", u.to_ascii_lowercase()),
-        _ => String::new(),
+        (_, Some(_)) => String::new(),
+        // Without a username, mentions still reach the person (as a link on
+        // their name), but a username is easier for everyone to type.
+        (_, None) => "\nTip: set a Telegram username (Settings → Username) so teammates and agents can @mention you by it. \
+                      Until then mentions show your name and still notify you."
+            .to_string(),
     };
     db::audit(
         pool,
