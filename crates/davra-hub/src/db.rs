@@ -230,6 +230,25 @@ pub async fn recent(pool: &PgPool, project_id: Uuid, limit: i64) -> Result<Vec<M
     Ok(rows)
 }
 
+/// Up to `limit` messages older than `before`, oldest first.
+pub async fn before(
+    pool: &PgPool,
+    project_id: Uuid,
+    before: i64,
+    limit: i64,
+) -> Result<Vec<MsgRow>> {
+    let mut rows: Vec<MsgRow> = sqlx::query_as(&format!(
+        "{MSG_SELECT} where m.project_id = $1 and m.id < $2 order by m.id desc limit $3"
+    ))
+    .bind(project_id)
+    .bind(before)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    rows.reverse();
+    Ok(rows)
+}
+
 pub async fn total_messages(pool: &PgPool, project_id: Uuid) -> Result<i64> {
     Ok(
         sqlx::query_scalar("select count(*) from messages where project_id = $1")
@@ -570,6 +589,75 @@ pub async fn update_tg_message(
     .execute(pool)
     .await?;
     Ok(())
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Rename {
+    Done { old: String },
+    Same,
+    Taken,
+}
+
+/// Renames a member and keeps history addressable: mentions in stored
+/// messages and handoff labels follow the new handle.
+pub async fn rename_member(pool: &PgPool, member_id: Uuid, new_handle: &str) -> Result<Rename> {
+    let mut tx = pool.begin().await?;
+    let (org_id, old): (Uuid, String) =
+        sqlx::query_as("select org_id, handle from members where id = $1 for update")
+            .bind(member_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if old == new_handle {
+        return Ok(Rename::Same);
+    }
+    let taken: bool = sqlx::query_scalar(
+        "select exists (select 1 from members where org_id = $1 and handle = $2)",
+    )
+    .bind(org_id)
+    .bind(new_handle)
+    .fetch_one(&mut *tx)
+    .await?;
+    if taken {
+        return Ok(Rename::Taken);
+    }
+    sqlx::query("update members set handle = $2 where id = $1")
+        .bind(member_id)
+        .bind(new_handle)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "update messages set mentions = array_replace(mentions, $2, $3) where org_id = $1 and $2 = any(mentions)",
+    )
+    .bind(org_id)
+    .bind(&old)
+    .bind(new_handle)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "update handoffs set to_labels = array_replace(to_labels, $2, $3) where org_id = $1 and $2 = any(to_labels)",
+    )
+    .bind(org_id)
+    .bind(&old)
+    .bind(new_handle)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("update handoffs set from_label = $3 where org_id = $1 and from_label = $2")
+        .bind(org_id)
+        .bind(&old)
+        .bind(new_handle)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    audit(
+        pool,
+        Some(org_id),
+        Some(member_id),
+        "member.rename",
+        Some(new_handle),
+        serde_json::json!({ "from": old }),
+    )
+    .await?;
+    Ok(Rename::Done { old })
 }
 
 pub async fn kv_get(pool: &PgPool, key: &str) -> Result<Option<String>> {

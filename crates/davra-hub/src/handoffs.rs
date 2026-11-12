@@ -19,7 +19,7 @@ use crate::db::{self, Caller, NewMessage, Project};
 use crate::error::{AppError, AppResult};
 use crate::AppState;
 
-const MAX_BODY: usize = 20_000;
+const MAX_BODY: usize = 100_000;
 const MAX_SYNC_ITEMS: usize = 200;
 
 #[derive(FromRow)]
@@ -59,6 +59,21 @@ impl Row {
 const SELECT: &str =
     "select id, ticket, from_label, to_labels, status, body, done_note, source_path, \
     source_hash, created_at, done_at, message_id from handoffs";
+
+pub async fn open_in_project(
+    pool: &PgPool,
+    project_id: Uuid,
+    limit: i64,
+) -> Result<Vec<HandoffView>> {
+    let rows: Vec<Row> = sqlx::query_as(&format!(
+        "{SELECT} where project_id = $1 and status = 'open' order by id desc limit $2"
+    ))
+    .bind(project_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(Row::view).collect())
+}
 
 pub async fn open_for(
     pool: &PgPool,

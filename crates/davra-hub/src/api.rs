@@ -39,10 +39,6 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/projects/{slug}/handoffs",
             get(crate::handoffs::list).post(crate::handoffs::create),
         )
-        .route(
-            "/api/v1/projects/{slug}/handoffs/sync",
-            post(crate::handoffs::sync),
-        )
         .route("/api/v1/handoffs/{id}", get(crate::handoffs::get_one))
         .route("/api/v1/handoffs/{id}/done", post(crate::handoffs::done))
         .route(
@@ -53,8 +49,47 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/questions/{id}/answer",
             post(crate::questions::answer),
         )
+        .route("/api/v1/web/overview", get(crate::webapp::overview))
+        .route(
+            "/api/v1/web/telegram/link",
+            post(crate::webapp::telegram_link),
+        )
+        .route("/api/v1/web/projects", post(crate::webapp::create_project))
+        .route(
+            "/api/v1/web/projects/{org}/{slug}",
+            get(crate::webapp::project_detail),
+        )
+        .route(
+            "/api/v1/web/projects/{org}/{slug}/search",
+            get(crate::webapp::search),
+        )
+        .route(
+            "/api/v1/web/projects/{org}/{slug}/messages",
+            get(crate::webapp::older_messages).post(crate::webapp::post),
+        )
+        .route(
+            "/api/v1/web/projects/{org}/{slug}/agents",
+            post(crate::webapp::create_agent),
+        )
+        .route(
+            "/api/v1/web/projects/{org}/{slug}/agents/{handle}/roles",
+            post(crate::webapp::set_roles),
+        )
+        .route(
+            "/api/v1/web/projects/{org}/{slug}/agents/{handle}/tokens",
+            post(crate::webapp::create_token),
+        )
+        .route(
+            "/api/v1/web/tokens/{id}/revoke",
+            post(crate::webapp::revoke_token),
+        )
         .route("/api/{*rest}", axum::routing::any(api_not_found))
         .layer(DefaultBodyLimit::max(64 * 1024))
+        // A repo sync carries many handoff files; it has its own limit.
+        .route(
+            "/api/v1/projects/{slug}/handoffs/sync",
+            post(crate::handoffs::sync).layer(DefaultBodyLimit::max(2 * 1024 * 1024)),
+        )
         // Push payloads can be large; this route has its own limit.
         .route(
             "/webhooks/github/{org}/{slug}",
@@ -194,6 +229,16 @@ async fn post_message(
     Json(req): Json<PostRequest>,
 ) -> AppResult<Json<PostResponse>> {
     let p = project(&state, &caller, &slug).await?;
+    Ok(Json(post_as(&state, &caller, &p, req).await?))
+}
+
+/// Stores a message from `caller` in project `p` and relays it to the chat.
+pub async fn post_as(
+    state: &AppState,
+    caller: &Caller,
+    p: &Project,
+    req: PostRequest,
+) -> AppResult<PostResponse> {
     if p.role == "viewer" {
         return Err(AppError::Forbidden("viewers cannot post".into()));
     }
@@ -262,14 +307,19 @@ async fn post_message(
     // The author has obviously seen everything up to their own message.
     db::ack(&state.pool, caller.member_id, p.id, id).await?;
 
-    let text = format!("🤖 {}\n{}", caller.handle, body);
-    let relayed = relay(&state, p.tg_chat_id, id, &text, reply.as_ref()).await?;
+    let icon = if caller.kind == MemberKind::Agent {
+        "🤖"
+    } else {
+        "💬"
+    };
+    let text = format!("{icon} {}\n{}", caller.handle, body);
+    let relayed = relay(state, p.tg_chat_id, id, &text, reply.as_ref()).await?;
 
-    Ok(Json(PostResponse {
+    Ok(PostResponse {
         id,
         relayed,
         redacted,
-    }))
+    })
 }
 
 /// Shows a stored message in the project's chat, if one is linked.

@@ -12,7 +12,8 @@ function Root() {
 }
 
 // The landing page ships in the main bundle; everything behind Login is split out.
-export const router = createBrowserRouter([
+export const createAppRouter = () =>
+  createBrowserRouter([
   {
     element: <Root />,
     HydrateFallback: () => <PageLoading />,
@@ -23,9 +24,14 @@ export const router = createBrowserRouter([
       {
         path: "app",
         lazy: async () => {
-          const m = await import("@/pages/AppHome");
+          const m = await import("@/pages/app/AppLayout");
           return { Component: m.default, loader: m.loader };
         },
+        children: [
+          { index: true, lazy: async () => ({ Component: (await import("@/pages/app/Overview")).default }) },
+          { path: "new", lazy: async () => ({ Component: (await import("@/pages/app/NewProject")).default }) },
+          { path: ":org/:slug", lazy: async () => ({ Component: (await import("@/pages/app/Project")).default }) },
+        ],
       },
       { path: "*", lazy: async () => ({ Component: (await import("@/pages/NotFound")).default }) },
     ],

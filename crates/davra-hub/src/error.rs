@@ -24,6 +24,9 @@ pub enum AppError {
     /// 400 tied to one request field, so a form can show it in place.
     #[error("{1}")]
     Field(&'static str, String),
+    /// 409 tied to one request field (a taken handle or slug).
+    #[error("{1}")]
+    FieldConflict(&'static str, String),
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -46,6 +49,7 @@ impl IntoResponse for AppError {
             AppError::Conflict(_) => (StatusCode::CONFLICT, "email_taken"),
             AppError::InvalidCredentials => (StatusCode::UNAUTHORIZED, "invalid_credentials"),
             AppError::Field(..) => (StatusCode::BAD_REQUEST, "bad_request"),
+            AppError::FieldConflict(..) => (StatusCode::CONFLICT, "conflict"),
             AppError::Internal(e) => {
                 tracing::error!(error = %e, "internal error");
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal")
@@ -61,7 +65,7 @@ impl IntoResponse for AppError {
                 error: code.into(),
                 message,
                 field: match &self {
-                    AppError::Field(f, _) => Some((*f).to_string()),
+                    AppError::Field(f, _) | AppError::FieldConflict(f, _) => Some((*f).to_string()),
                     AppError::Conflict(_) => Some("email".to_string()),
                     _ => None,
                 },

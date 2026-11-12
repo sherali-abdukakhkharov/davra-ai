@@ -111,7 +111,7 @@ pub async fn sync(
         .collect();
 
     let mut total = HandoffSyncResult::default();
-    for chunk in changed.chunks(100) {
+    for chunk in changed.chunks(25) {
         let r = client
             .handoff_sync(
                 &repo.project,

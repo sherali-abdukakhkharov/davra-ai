@@ -3,7 +3,8 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-const hub = "http://127.0.0.1:8787";
+// Dev hub to proxy to. Defaults to the seeded local dev hub; set VITE_HUB to point elsewhere.
+const hub = process.env.VITE_HUB ?? "http://127.0.0.1:8788";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

@@ -292,6 +292,23 @@ pub async fn member_roles(pool: &PgPool, org: Option<&str>, handle: &str, set: &
     Ok(())
 }
 
+pub async fn member_rename(
+    pool: &PgPool,
+    org: Option<&str>,
+    handle: &str,
+    new_handle: &str,
+) -> Result<()> {
+    let (org_id, _) = resolve_org(pool, org).await?;
+    let (mid, _) = member_id(pool, org_id, handle).await?;
+    let new = slug(new_handle)?;
+    match db::rename_member(pool, mid, &new).await? {
+        db::Rename::Done { old } => println!("'{old}' is now '{new}'"),
+        db::Rename::Same => println!("'{new}' already has that handle"),
+        db::Rename::Taken => bail!("'{new}' is already used in this org"),
+    }
+    Ok(())
+}
+
 pub async fn member_link_telegram(
     pool: &PgPool,
     org: Option<&str>,

@@ -85,7 +85,7 @@ impl RateLimiter {
     }
 }
 
-fn require_csrf(headers: &HeaderMap) -> AppResult<()> {
+pub fn require_csrf(headers: &HeaderMap) -> AppResult<()> {
     match headers.get("x-davra").and_then(|v| v.to_str().ok()) {
         Some("1") => Ok(()),
         _ => Err(AppError::Forbidden("missing X-Davra header".into())),

@@ -104,6 +104,7 @@ pub struct Incoming {
     pub from_id: Option<i64>,
     pub from_is_bot: bool,
     pub from_name: String,
+    pub from_username: Option<String>,
     pub text: String,
     pub reply_to_tg: Option<i64>,
     pub topic: Option<String>,
@@ -148,6 +149,7 @@ pub fn parse_update(u: &Update) -> Option<Incoming> {
         from_id: m.from.as_ref().map(|f| f.id),
         from_is_bot: m.from.as_ref().is_some_and(|f| f.is_bot),
         from_name,
+        from_username: m.from.as_ref().and_then(|f| f.username.clone()),
         text,
         reply_to_tg,
         topic,
@@ -312,6 +314,25 @@ impl Telegram {
         if inc.from_id == Some(self.bot_id) {
             return Ok(());
         }
+        // "/start link_<code>" from the web app's "Connect Telegram" button.
+        if !inc.edited {
+            if let Some(code) = inc.text.trim().strip_prefix("/start link_") {
+                let reply = match inc.from_id {
+                    Some(uid) if !inc.from_is_bot => {
+                        crate::webapp::complete_link(
+                            pool,
+                            code.trim(),
+                            uid,
+                            inc.from_username.as_deref(),
+                        )
+                        .await?
+                    }
+                    _ => "Open this link from your own Telegram account.".to_string(),
+                };
+                self.send(inc.chat_id, &reply, None, None).await?;
+                return Ok(());
+            }
+        }
         let project = db::project_by_tg_chat(pool, inc.chat_id).await?;
 
         // `/id` helps admins link chats and users without guessing numbers.
@@ -348,6 +369,14 @@ impl Telegram {
             Some(id) => db::member_by_tg_user(pool, project.org_id, id).await?,
             None => None,
         };
+        // Remember the current Telegram username (people change them).
+        if let (Some(aid), Some(u)) = (author_id, inc.from_username.as_deref()) {
+            sqlx::query("update members set tg_username = $2 where id = $1 and tg_username is distinct from $2")
+                .bind(aid)
+                .bind(u.to_ascii_lowercase())
+                .execute(pool)
+                .await?;
+        }
         let reply = match inc.reply_to_tg {
             Some(r) => db::reply_target_by_tg(pool, project.id, r).await?,
             None => None,

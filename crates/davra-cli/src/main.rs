@@ -11,6 +11,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use davra_core::api::PostRequest;
 use davra_core::format;
+use davra_core::project_file;
 
 use crate::client::Client;
 
@@ -253,8 +254,12 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Mcp => mcp::serve(cwd).await?,
         Cmd::Brief { hook, project } => {
             if hook {
-                // A hook must never break or slow down the session.
+                // A hook must never break or slow down the session, and it only
+                // speaks inside repositories that opted in with a .davra.toml.
                 let cwd = hook_cwd();
+                if project.is_none() && project_file::find(&cwd).is_none() {
+                    return Ok(());
+                }
                 match brief(cwd, project, Duration::from_secs(4)).await {
                     Ok(t) => print!("{t}"),
                     Err(e) => eprintln!("davra: brief unavailable: {e:#}"),
@@ -266,6 +271,9 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Inbox { hook, project } => {
             if hook {
                 let cwd = hook_cwd();
+                if project.is_none() && project_file::find(&cwd).is_none() {
+                    return Ok(());
+                }
                 match inbox(cwd, project, true, Duration::from_secs(3)).await {
                     Ok(t) => print!("{t}"),
                     Err(e) => eprintln!("davra: inbox unavailable: {e:#}"),

@@ -17,26 +17,31 @@ export class ApiError extends Error {
   readonly serverMessage: string | null;
   /** Request field the error is about ("name", "email", "password"), if the server named one. */
   readonly field: string | null;
-  constructor(code: ApiErrorCode, status: number, serverMessage: string | null, field: string | null = null) {
+  /** The server's raw `error` value, even when it is not one of the known codes. */
+  readonly error: string | null;
+  constructor(code: ApiErrorCode, status: number, serverMessage: string | null, field: string | null = null, error: string | null = null) {
     super(serverMessage ?? code);
     this.code = code;
     this.status = status;
     this.serverMessage = serverMessage;
     this.field = field;
+    this.error = error;
   }
 }
 
 const KNOWN: readonly ApiErrorCode[] = ["bad_request", "email_taken", "invalid_credentials", "rate_limited"];
 
-async function readError(res: Response): Promise<ApiError> {
+export async function readError(res: Response): Promise<ApiError> {
   let code: ApiErrorCode = "unexpected";
   let message: string | null = null;
   let field: string | null = null;
+  let raw: string | null = null;
   try {
     const body: unknown = await res.json();
     if (body && typeof body === "object") {
       const b = body as { error?: unknown; message?: unknown; field?: unknown };
       if (typeof b.field === "string") field = b.field;
+      if (typeof b.error === "string") raw = b.error;
       if (typeof b.error === "string" && (KNOWN as readonly string[]).includes(b.error)) {
         code = b.error as ApiErrorCode;
       }
@@ -47,10 +52,10 @@ async function readError(res: Response): Promise<ApiError> {
   }
   if (code === "unexpected" && res.status === 429) code = "rate_limited";
   if (code === "unexpected" && res.status === 401) code = "invalid_credentials";
-  return new ApiError(code, res.status, message, field);
+  return new ApiError(code, res.status, message, field, raw);
 }
 
-async function request(method: "GET" | "POST", path: string, body?: unknown, signal?: AbortSignal) {
+export async function request(method: "GET" | "POST", path: string, body?: unknown, signal?: AbortSignal) {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (method === "POST") {
     headers["Content-Type"] = "application/json";

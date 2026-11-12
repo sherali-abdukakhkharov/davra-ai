@@ -11,7 +11,7 @@ icons come from `lucide-react`, there is no analytics.
 
 ```sh
 npm ci            # install exact pinned versions
-npm run dev       # http://localhost:5173, proxies /api and /.well-known to http://127.0.0.1:8787
+npm run dev       # http://localhost:5173, proxies /api and /.well-known to $VITE_HUB (default http://127.0.0.1:8788, the seeded dev hub)
 npm run typecheck # tsc --noEmit
 npm run build     # typecheck + production build into dist/ (index.html at the root)
 npm run preview   # serve dist/ on http://localhost:4321 with the same proxy

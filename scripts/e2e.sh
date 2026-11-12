@@ -122,7 +122,9 @@ has "$out" "Only messages marked [owner]" "trust preamble"
 [ ${#out} -lt 6000 ] || fail "brief too long: ${#out}"
 out=$(echo '{"cwd":"/nonexistent","hook_event_name":"SessionStart"}' | DAVRA_TOKEN=dvr_bad "$CLI" brief --hook; echo "rc=$?")
 has "$out" "rc=0" "hook never fails the session"
-ok "brief within budget; hook exits 0 on errors"
+out=$(printf '{"cwd":"%s"}' "$WORK" | DAVRA_TOKEN="$T_GAI" "$CLI" brief --hook)
+[ -z "$out" ] || fail "hooks must stay silent outside a repo with .davra.toml, got: $out"
+ok "brief within budget; hook exits 0 on errors and stays silent outside opted-in repos"
 
 echo "== guards"
 out=$(DAVRA_TOKEN="$T_GUEST" "$CLI" post "salom" --project mosla 2>&1 || true)
@@ -289,6 +291,61 @@ has "$body" '"error":"not_found"' "json 404"
 has "$body" "content-security-policy: default-src 'self'" "csp header"
 has "$body" "x-content-type-options: nosniff" "nosniff header"
 ok "unknown API paths are JSON 404s; security headers set"
+
+echo "== web app"
+WJ="$WORK/web.txt"
+curl -s -c "$WJ" "${J[@]}" "${CSRF[@]}" -d '{"name":"Dilnoza","email":"dilnoza@qitmir.uz","password":"web-app-password"}' "$DAVRA_HUB/api/v1/auth/register" >/dev/null
+W() { curl -s -b "$WJ" "$@"; }
+WP() { local path=$1; shift; curl -s -b "$WJ" "${J[@]}" "${CSRF[@]}" -d "$1" "$DAVRA_HUB$path"; }
+body=$(W "$DAVRA_HUB/api/v1/web/overview")
+has "$body" '"projects":[]' "fresh account has no projects"
+has "$body" '"linked":false' "telegram not linked"
+body=$(WP /api/v1/web/projects '{"org":"shaxsiy","slug":"x","name":"X","handle":"dilnoza"}')
+has "$body" '"field":"org"' "cannot join someone else's org by name"
+body=$(WP /api/v1/web/projects '{"org":"dilnoza-lab","org_name":"Dilnoza Lab","slug":"crm","name":"CRM","handle":"dilnoza"}')
+has "$body" '"slug":"crm"' "create project"
+has "$body" '"role":"owner"' "creator is owner"
+body=$(WP /api/v1/web/projects/dilnoza-lab/crm/messages '{"text":"salom jamoa, @dilnoza-ai bugun login formani qil"}')
+has "$body" '"id":' "web post"
+body=$(WP /api/v1/web/projects/dilnoza-lab/crm/agents '{"handle":"dilnoza-ai","roles":["core","auth"]}')
+has "$body" '"handle":"dilnoza-ai"' "create agent"
+has "$body" '"mine":true' "agent is mine"
+body=$(WP /api/v1/web/projects/dilnoza-lab/crm/agents '{"handle":"dilnoza-ai"}')
+has "$body" '"field":"handle"' "duplicate agent handle"
+body=$(WP /api/v1/web/projects/dilnoza-lab/crm/agents/dilnoza-ai/tokens '{"name":"laptop"}')
+has "$body" '"commands":["davra login' "token with connect commands"
+TOK=$(grep -o '"token":"dvr_[a-f0-9]*"' <<<"$body" | cut -d'"' -f4)
+TID=$(grep -o '"id":"[0-9a-f-]*"' <<<"$body" | head -1 | cut -d'"' -f4)
+out=$(DAVRA_TOKEN="$TOK" "$CLI" inbox --project crm)
+has "$out" "dilnoza [owner]" "the new agent reads its owner's web message as [owner]"
+body=$(W "$DAVRA_HUB/api/v1/web/projects/dilnoza-lab/crm")
+has "$body" '"messages_7d":1' "stats"
+has "$body" '"name":"laptop"' "my agent's tokens listed"
+has "$body" '"roles":["core","auth"]' "agent roles"
+body=$(W "$DAVRA_HUB/api/v1/web/projects/dilnoza-lab/crm/search?q=login")
+has "$body" '"author":"dilnoza"' "web search"
+code=$(W -o /dev/null -w '%{http_code}' "$DAVRA_HUB/api/v1/web/projects/shaxsiy/mosla")
+[ "$code" = 404 ] || fail "other people's projects must be invisible -> $code"
+code=$(W -o /dev/null -w '%{http_code}' "${CSRF[@]}" -X POST "$DAVRA_HUB/api/v1/web/tokens/$TID/revoke")
+[ "$code" = 204 ] || fail "revoke -> $code"
+out=$(DAVRA_TOKEN="$TOK" "$CLI" whoami 2>&1 || true)
+has "$out" "invalid token" "revoked token stops working"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$WJ" "${J[@]}" -d '{"text":"no csrf"}' "$DAVRA_HUB/api/v1/web/projects/dilnoza-lab/crm/messages")
+[ "$code" = 403 ] || fail "web POST without X-Davra -> $code"
+ok "web app: create project, post, agents with roles, one-time token works then revokes, others' projects hidden, CSRF enforced"
+
+echo "== rename"
+as "$T_LAI" post "@lionali tekshirib ko'ring" --project mosla >/dev/null
+"$HUB" member rename lionali ali_9737 --org shaxsiy >/dev/null
+out=$(as "$T_LI" whoami)
+has "$out" "@ali_9737 (human)" "renamed handle"
+out=$(as "$T_LI" inbox --project mosla)
+has "$out" "tekshirib ko'ring" "old mentions follow the rename"
+out=$(as "$T_LAI" brief --project mosla)
+has "$out" "@lionali-ai (agent of @ali_9737)" "agents see the new owner handle"
+out=$("$HUB" member rename gulom ali_9737 --org shaxsiy 2>&1 || true)
+has "$out" "already used" "rename cannot take a used handle"
+ok "rename: handle changes, past mentions follow, collisions refused"
 
 echo
 echo "e2e: all $pass checks passed"

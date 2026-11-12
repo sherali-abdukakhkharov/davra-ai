@@ -11,6 +11,7 @@ mod questions;
 mod telegram;
 mod tgexport;
 mod trust;
+mod webapp;
 
 use std::sync::Arc;
 
@@ -30,6 +31,8 @@ pub struct AppState {
     /// Built web app (index.html + assets). None: API only.
     pub web_dir: Option<std::path::PathBuf>,
     pub embedder: Option<Arc<embed::Embedder>>,
+    /// Public base URL, e.g. https://davra.qitmir.uz (shown in connect commands).
+    pub public_url: Option<String>,
 }
 
 #[derive(Parser)]
@@ -71,6 +74,9 @@ enum Cmd {
         embed_url: Option<String>,
         #[arg(long, env = "DAVRA_EMBED_MODEL", default_value = "bge-m3")]
         embed_model: String,
+        /// Public base URL of this hub, e.g. https://davra.example.uz
+        #[arg(long, env = "DAVRA_PUBLIC_URL")]
+        public_url: Option<String>,
     },
     /// Apply database migrations and exit.
     Migrate,
@@ -175,6 +181,13 @@ enum MemberCmd {
         #[arg(long)]
         org: Option<String>,
     },
+    /// Rename a member (mentions in history and handoff labels follow).
+    Rename {
+        handle: String,
+        new_handle: String,
+        #[arg(long)]
+        org: Option<String>,
+    },
     /// Link a Telegram user id to a member.
     LinkTelegram {
         handle: String,
@@ -255,6 +268,7 @@ async fn main() -> Result<()> {
             registration,
             embed_url,
             embed_model,
+            public_url,
         } => {
             if !no_migrate {
                 migrate(&pool).await?;
@@ -294,6 +308,7 @@ async fn main() -> Result<()> {
                 registration_open: registration == "open",
                 web_dir,
                 embedder,
+                public_url: public_url.map(|u| u.trim_end_matches('/').to_string()),
             });
             let listener = tokio::net::TcpListener::bind(&bind)
                 .await
@@ -357,6 +372,11 @@ async fn main() -> Result<()> {
         Cmd::Member(MemberCmd::Roles { handle, set, org }) => {
             admin::member_roles(&pool, org.as_deref(), &handle, &set).await?
         }
+        Cmd::Member(MemberCmd::Rename {
+            handle,
+            new_handle,
+            org,
+        }) => admin::member_rename(&pool, org.as_deref(), &handle, &new_handle).await?,
         Cmd::Member(MemberCmd::LinkTelegram {
             handle,
             tg_user,
