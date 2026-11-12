@@ -1,7 +1,7 @@
 // Local stand-in for the hub's auth + web API. Loaded only in dev with ?mock=1 (or ?mock=fresh),
 // and by the design preview build. Every name and message here is synthetic.
 
-import type { Handoff, Member, Message, ProjectDetail, ProjectItem, Token, Trust } from "./web";
+import { grantable, type Handoff, type Invite, type Member, type Message, type ProjectDetail, type ProjectItem, type Token, type Trust } from "./web";
 
 type State = {
   signedIn: boolean;
@@ -14,6 +14,7 @@ type State = {
 
 type Project = {
   item: ProjectItem;
+  invites?: (Invite & { code: string })[];
   members: Member[];
   messages: Message[];
   handoffs: Handoff[];
@@ -32,18 +33,18 @@ function memberTrust(me: string, myAgents: string[], author: string, kind: Membe
 
 function seedMosla(): Project {
   const members: Member[] = [
-    { handle: "ali_9737", kind: "human", display_name: "Ali", owner: null, roles: ["lead"], role: "owner", last_seen: ago(2), is_me: true, mine: false, tokens: [] },
+    { handle: "ali_9737", kind: "human", linked: true, display_name: "Ali", owner: null, roles: ["lead"], role: "owner", last_seen: ago(2), is_me: true, mine: false, tokens: [] },
     {
-      handle: "ali-ai", kind: "agent", display_name: null, owner: "ali_9737", roles: ["ui-kit"], role: "agent", last_seen: ago(4), is_me: false, mine: true,
+      handle: "ali-ai", kind: "agent", linked: false, display_name: null, owner: "ali_9737", roles: ["ui-kit"], role: "agent", last_seen: ago(4), is_me: false, mine: true,
       tokens: [
         { id: "t-101", name: "laptop", created_at: ago(60 * 24 * 9), last_used_at: ago(4) },
         { id: "t-102", name: "desktop", created_at: ago(60 * 24 * 30), last_used_at: ago(60 * 24 * 6) },
       ],
     },
-    { handle: "gulom", kind: "human", display_name: "Gulom", owner: null, roles: ["backend"], role: "maintainer", last_seen: ago(35), is_me: false, mine: false, tokens: [] },
-    { handle: "gulom-ai", kind: "agent", display_name: null, owner: "gulom", roles: ["core", "business"], role: "agent", last_seen: ago(12), is_me: false, mine: false, tokens: [] },
-    { handle: "aziza", kind: "human", display_name: "Aziza", owner: null, roles: ["qa"], role: "viewer", last_seen: ago(60 * 26), is_me: false, mine: false, tokens: [] },
-    { handle: "rustam.k", kind: "human", display_name: "Rustam Karimov", owner: null, roles: ["devops"], role: "member", last_seen: ago(60 * 3), is_me: false, mine: false, tokens: [] },
+    { handle: "gulom", kind: "human", linked: false, display_name: "Gulom", owner: null, roles: ["backend"], role: "maintainer", last_seen: ago(35), is_me: false, mine: false, tokens: [] },
+    { handle: "gulom-ai", kind: "agent", linked: false, display_name: null, owner: "gulom", roles: ["core", "business"], role: "agent", last_seen: ago(12), is_me: false, mine: false, tokens: [] },
+    { handle: "aziza", kind: "human", linked: true, display_name: "Aziza", owner: null, roles: ["qa"], role: "viewer", last_seen: ago(60 * 26), is_me: false, mine: false, tokens: [] },
+    { handle: "rustam.k", kind: "human", linked: true, display_name: "Rustam Karimov", owner: null, roles: ["devops"], role: "member", last_seen: ago(60 * 3), is_me: false, mine: false, tokens: [] },
   ];
   const lines: [string, string, number | null, string?][] = [
     ["gulom", "morning. CI is green again after the sqlx bump", null],
@@ -152,7 +153,7 @@ function seedSecond(): Project {
   return {
     item: { org: "qitmir", slug: "davra", name: "Davra", role: "viewer", handle: "ali_9737", members: 4, agents: 3, messages: 312, open_handoffs: 0, last_activity: ago(60 * 20), telegram: false },
     members: [
-      { handle: "ali_9737", kind: "human", display_name: "Ali", owner: null, roles: [], role: "viewer", last_seen: ago(2), is_me: true, mine: false, tokens: [] },
+      { handle: "ali_9737", kind: "human", linked: true, display_name: "Ali", owner: null, roles: [], role: "viewer", last_seen: ago(2), is_me: true, mine: false, tokens: [] },
     ],
     messages: [],
     handoffs: [],
@@ -244,7 +245,7 @@ async function handle(method: string, path: string, body: Record<string, unknown
     const item: ProjectItem = { org, slug, name, role: "owner", handle: h, members: 1, agents: 0, messages: 0, open_handoffs: 0, last_activity: null, telegram: false };
     state.projects.push({
       item,
-      members: [{ handle: h, kind: "human", display_name: state.user.name, owner: null, roles: [], role: "owner", last_seen: new Date().toISOString(), is_me: true, mine: false, tokens: [] }],
+      members: [{ handle: h, kind: "human", linked: true, display_name: state.user.name, owner: null, roles: [], role: "owner", last_seen: new Date().toISOString(), is_me: true, mine: false, tokens: [] }],
       messages: [],
       handoffs: [],
     });
@@ -254,6 +255,22 @@ async function handle(method: string, path: string, body: Record<string, unknown
     const id = decodeURIComponent(p.split("/")[5] ?? "");
     for (const pr of state.projects) for (const m of pr.members) m.tokens = m.tokens.filter((t) => String(t.id) !== id);
     return json(204, undefined);
+  }
+
+  const inv = p.match(/^\/api\/v1\/web\/invites\/([^/]+)(\/accept)?$/);
+  if (inv) {
+    const code = decodeURIComponent(inv[1]!);
+    const pr = state.projects.find((x) => x.invites?.some((i) => i.code === code));
+    const i = pr?.invites?.find((x) => x.code === code);
+    // "demo" always works, so /invite/demo?mock=1 shows the page.
+    if (!pr || !i) {
+      if (code !== "demo") return fail(404, "not_found", "this invite link is not valid");
+      if (!inv[2]) return json(200, { org: "qitmir", slug: "crm", name: "CRM", role: "member", invited_by: "dilnoza", member: null, status: "open" });
+      return json(200, { org: "qitmir", slug: "davra", handle: String(body.handle ?? "ali_9737"), already: false });
+    }
+    if (!inv[2]) return json(200, { org: pr.item.org, slug: pr.item.slug, name: pr.item.name, role: i.role, invited_by: i.created_by, member: i.member, status: "open" });
+    pr.invites = pr.invites!.filter((x) => x !== i);
+    return json(200, { org: pr.item.org, slug: pr.item.slug, handle: pr.item.handle, already: true });
   }
 
   const m = p.match(/^\/api\/v1\/web\/projects\/([^/]+)\/([^/]+)(\/.*)?$/);
@@ -298,12 +315,55 @@ async function handle(method: string, path: string, body: Record<string, unknown
       if (!HANDLE.test(h)) return fail(400, "bad_request", "Use a–z, 0–9, - _ or ., up to 64 characters.", "handle");
       if (pr.members.some((x) => x.handle === h)) return fail(409, "conflict", "That handle is already taken in this project.", "handle");
       const agent: Member = {
-        handle: h, kind: "agent", display_name: null, owner: pr.item.handle, roles: (body.roles as string[]) ?? [], role: "agent",
+        handle: h, kind: "agent", linked: false, display_name: null, owner: pr.item.handle, roles: (body.roles as string[]) ?? [], role: "agent",
         last_seen: null, is_me: false, mine: true, tokens: [],
       };
       pr.members.push(agent);
       pr.item.agents++;
       return json(201, { agent });
+    }
+    const admin = grantable(pr.item.role).length > 0;
+    if (rest === "/invites" && method === "GET") {
+      if (!admin) return fail(403, "forbidden", "only owners and maintainers manage the team");
+      return json(200, { invites: (pr.invites ?? []).map(({ code: _code, ...i }) => i) });
+    }
+    if (rest === "/invites" && method === "POST") {
+      if (!admin) return fail(403, "forbidden", "only owners and maintainers manage the team");
+      const role = String(body.role ?? "");
+      if (!grantable(pr.item.role).includes(role)) return fail(400, "bad_request", "pick maintainer, member or viewer", "role");
+      const member = body.member ? String(body.member).replace(/^@/, "") : null;
+      const code = Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2);
+      const invite: Invite = {
+        id: `i-${state.nextId++}`, role, member, created_by: pr.item.handle, created_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 7 * 24 * 60 * MINUTE).toISOString(),
+      };
+      pr.invites = [{ ...invite, code }, ...(pr.invites ?? [])];
+      return json(200, { invite, url: `${location.origin}/invite/${code}` });
+    }
+    const rv = rest.match(/^\/invites\/([^/]+)\/revoke$/);
+    if (rv && method === "POST") {
+      pr.invites = (pr.invites ?? []).filter((i) => i.id !== decodeURIComponent(rv[1]!));
+      return json(204, undefined);
+    }
+    const mm = rest.match(/^\/members\/([^/]+)\/(role|remove)$/);
+    if (mm && method === "POST") {
+      const target = pr.members.find((x) => x.handle === decodeURIComponent(mm[1]!));
+      if (!target) return fail(404, "not_found", "not in this project");
+      if (mm[2] === "remove") {
+        if (target.is_me && target.role === "owner") return fail(403, "forbidden", "an owner can't leave; ask the hub admin to transfer ownership first");
+        const may = target.is_me || (target.kind === "agent" ? admin || target.mine : grantable(pr.item.role).includes(target.role));
+        if (!may) return fail(403, "forbidden", `you can't remove @${target.handle}`);
+        pr.members = pr.members.filter((x) => x !== target && x.owner !== target.handle);
+        if (target.is_me) state.projects = state.projects.filter((x) => x !== pr);
+        return json(204, undefined);
+      }
+      const role = String(body.role ?? "");
+      if (target.is_me) return fail(403, "forbidden", "you can't change your own role");
+      if (!grantable(pr.item.role).includes(target.role) || !grantable(pr.item.role).includes(role)) {
+        return fail(403, "forbidden", `you can't change @${target.handle}'s role`);
+      }
+      target.role = role;
+      return json(200, { members: pr.members });
     }
     const ag = rest.match(/^\/agents\/([^/]+)\/(roles|tokens)$/);
     if (ag && method === "POST") {

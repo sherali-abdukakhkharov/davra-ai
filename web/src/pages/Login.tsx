@@ -1,16 +1,20 @@
 import { useRef, useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { AuthLayout } from "@/components/site/AuthLayout";
 import { EMAIL_RE, Field, FormAlert, SubmitLabel } from "@/components/site/Form";
 import { Button } from "@/components/ui/button";
 import { errorText, login } from "@/lib/api";
 import { usePrefs } from "@/lib/prefs";
+import { safeNext } from "@/lib/utils";
 
 type Errors = { email?: string; password?: string };
 
 export default function Login() {
   const { t } = usePrefs();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const nextPath = safeNext(params.get("next"));
+  const carry = nextPath ? `?next=${encodeURIComponent(nextPath)}` : "";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<Errors>({});
@@ -41,7 +45,7 @@ export default function Login() {
     setPending(true);
     try {
       await login({ email: email.trim(), password });
-      navigate("/app", { replace: true });
+      navigate(nextPath ?? "/app", { replace: true });
     } catch (err) {
       setPending(false);
       setFormError(errorText(err, e));
@@ -96,7 +100,7 @@ export default function Login() {
       </form>
       <p className="mt-8 border-t border-rule pt-6 text-sm text-fg-muted">
         {t.auth.login.switchText}{" "}
-        <Link to="/register" className="rounded-sm font-medium text-accent underline decoration-current/40 hover:decoration-current">
+        <Link to={`/register${carry}`} className="rounded-sm font-medium text-accent underline decoration-current/40 hover:decoration-current">
           {t.auth.login.switchLink}
         </Link>
       </p>

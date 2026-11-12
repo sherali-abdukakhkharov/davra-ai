@@ -21,6 +21,7 @@ export const createAppRouter = () =>
       { index: true, element: <Landing /> },
       { path: "login", lazy: async () => ({ Component: (await import("@/pages/Login")).default }) },
       { path: "register", lazy: async () => ({ Component: (await import("@/pages/Register")).default }) },
+      { path: "invite/:code", lazy: async () => ({ Component: (await import("@/pages/Invite")).default }) },
       {
         path: "app",
         lazy: async () => {

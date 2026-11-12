@@ -29,6 +29,8 @@ export type Token = { id: string | number; name: string; created_at: string; las
 export type Member = {
   handle: string;
   kind: "human" | "agent";
+  /** A person with a Davra web account; people added from the CLI have none yet. */
+  linked: boolean;
   display_name: string | null;
   owner: string | null;
   roles: string[];
@@ -79,6 +81,34 @@ export type ProjectDetail = {
 export type SearchHit = { id: number; created_at: string; author: string; trust: Trust; snippet: string; score: number };
 export type SearchResult = { project: ProjectRef; query: string; hits: SearchHit[] };
 
+export type Invite = {
+  id: string;
+  role: Role;
+  /** The existing person this link hands over, if any. */
+  member: string | null;
+  created_by: string | null;
+  created_at: string;
+  expires_at: string;
+};
+
+export type InviteInfo = {
+  org: string;
+  slug: string;
+  name: string | null;
+  role: Role;
+  invited_by: string | null;
+  member: string | null;
+  status: "open" | "used" | "expired" | "revoked";
+};
+
+export type Accepted = { org: string; slug: string; handle: string; already: boolean };
+
+/** Roles someone with `role` may hand out or change; mirrors the hub's rule. */
+export const grantable = (role: Role): Role[] =>
+  role === "owner" ? ["maintainer", "member", "viewer"] : role === "maintainer" ? ["member", "viewer"] : [];
+
+export const isAdmin = (role: Role) => role === "owner" || role === "maintainer";
+
 export type NewToken = { id: string | number; token: string; hub: string; commands: string[] };
 
 const enc = encodeURIComponent;
@@ -114,6 +144,15 @@ export const web = {
   createToken: (org: string, slug: string, handle: string, name: string) =>
     post<NewToken>(`${base(org, slug)}/agents/${enc(handle)}/tokens`, { name }),
   revokeToken: (id: string | number) => post<void>(`/api/v1/web/tokens/${enc(String(id))}/revoke`),
+  invites: (org: string, slug: string, signal?: AbortSignal) => get<{ invites: Invite[] }>(`${base(org, slug)}/invites`, signal),
+  createInvite: (org: string, slug: string, role: Role, member?: string) =>
+    post<{ invite: Invite; url: string }>(`${base(org, slug)}/invites`, member ? { role, member } : { role }),
+  revokeInvite: (org: string, slug: string, id: string) => post<void>(`${base(org, slug)}/invites/${enc(id)}/revoke`),
+  inviteInfo: (code: string, signal?: AbortSignal) => get<InviteInfo>(`/api/v1/web/invites/${enc(code)}`, signal),
+  acceptInvite: (code: string, handle?: string) => post<Accepted>(`/api/v1/web/invites/${enc(code)}/accept`, handle ? { handle } : {}),
+  setMemberRole: (org: string, slug: string, handle: string, role: Role) =>
+    post<{ members: Member[] }>(`${base(org, slug)}/members/${enc(handle)}/role`, { role }),
+  removeMember: (org: string, slug: string, handle: string) => post<void>(`${base(org, slug)}/members/${enc(handle)}/remove`),
   createProject: (input: { org: string; org_name?: string; slug: string; name: string; handle: string }) =>
     post<{ project: ProjectItem }>("/api/v1/web/projects", input),
 };

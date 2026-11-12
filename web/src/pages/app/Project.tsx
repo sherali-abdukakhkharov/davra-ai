@@ -91,7 +91,12 @@ export default function Project() {
         ) : tab === "handoffs" ? (
           <HandoffsTab handoffs={d.handoffs} />
         ) : tab === "members" ? (
-          <MembersTab members={d.members} />
+          <MembersTab
+            project={d.project}
+            members={d.members}
+            onMembers={(members) => res.setData((prev) => (prev ? { ...prev, members: members.map((x) => ({ ...x, tokens: prev.members.find((y) => y.handle === x.handle)?.tokens ?? x.tokens })) } : prev))}
+            onChanged={() => void res.reload({ quiet: true })}
+          />
         ) : (
           <AgentsTab project={d.project} members={d.members} onMember={onMember} onChanged={() => void res.reload({ quiet: true })} />
         )}

@@ -17,7 +17,10 @@ export async function loader({ request }: { request: Request }) {
   } catch {
     user = null;
   }
-  if (!user) throw redirect("/login");
+  if (!user) {
+    const u = new URL(request.url);
+    throw redirect(`/login?next=${encodeURIComponent(u.pathname + u.search)}`);
+  }
   return { user };
 }
 

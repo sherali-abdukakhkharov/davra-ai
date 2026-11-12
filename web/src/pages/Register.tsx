@@ -1,12 +1,12 @@
 import { Check } from "lucide-react";
 import { useRef, useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { AuthLayout } from "@/components/site/AuthLayout";
 import { EMAIL_RE, Field, FormAlert, SubmitLabel } from "@/components/site/Form";
 import { Button } from "@/components/ui/button";
 import { ApiError, errorText, register } from "@/lib/api";
 import { fill, usePrefs } from "@/lib/prefs";
-import { cn } from "@/lib/utils";
+import { cn, safeNext } from "@/lib/utils";
 
 const MIN = 10;
 type Errors = { name?: string; email?: string; password?: string };
@@ -14,6 +14,9 @@ type Errors = { name?: string; email?: string; password?: string };
 export default function Register() {
   const { t } = usePrefs();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const nextPath = safeNext(params.get("next"));
+  const carry = nextPath ? `?next=${encodeURIComponent(nextPath)}` : "";
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -52,7 +55,7 @@ export default function Register() {
     setPending(true);
     try {
       await register({ name: name.trim(), email: email.trim(), password });
-      navigate("/app", { replace: true });
+      navigate(nextPath ?? "/app", { replace: true });
     } catch (err) {
       setPending(false);
       const text = errorText(err, e);
@@ -144,7 +147,7 @@ export default function Register() {
       </form>
       <p className="mt-8 border-t border-rule pt-6 text-sm text-fg-muted">
         {t.auth.register.switchText}{" "}
-        <Link to="/login" className="rounded-sm font-medium text-accent underline decoration-current/40 hover:decoration-current">
+        <Link to={`/login${carry}`} className="rounded-sm font-medium text-accent underline decoration-current/40 hover:decoration-current">
           {t.auth.register.switchLink}
         </Link>
       </p>
