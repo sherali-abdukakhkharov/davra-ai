@@ -179,6 +179,9 @@ pub struct MessageContext {
 pub struct ApiError {
     pub error: String,
     pub message: String,
+    /// The request field the error is about, when there is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
 }
 
 /// Served at `/.well-known/davra.json` so clients can discover a hub.

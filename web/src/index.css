@@ -1,0 +1,291 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geologica/shrp.css";
+@import "@fontsource-variable/martian-mono/index.css";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/*
+  Palette: Rishtan glaze. Cobalt (lapis) fields, white engobe ground,
+  ishkor turquoise and a little saffron. Light = porcelain by day,
+  dark = lapis night. Every colour is a token; components never hardcode.
+*/
+:root {
+  --bg: oklch(0.972 0.008 245);
+  --bg-raised: oklch(0.992 0.004 245);
+  --bg-sunk: oklch(0.938 0.016 250);
+  --fg: oklch(0.235 0.075 268);
+  --fg-muted: oklch(0.44 0.05 262);
+  --rule: oklch(0.87 0.022 252);
+  --rule-strong: oklch(0.78 0.035 256);
+
+  --primary: oklch(0.38 0.17 268);
+  --primary-hover: oklch(0.33 0.16 268);
+  --primary-fg: oklch(0.985 0.005 245);
+
+  --accent: oklch(0.47 0.095 200);
+  --glaze: oklch(0.72 0.12 190);
+  --saffron: oklch(0.8 0.14 78);
+  --saffron-ink: oklch(0.5 0.11 70);
+  --danger: oklch(0.52 0.19 25);
+  --danger-soft: oklch(0.95 0.03 25);
+  --ok: oklch(0.5 0.11 165);
+
+  --field: oklch(0.31 0.15 268);
+  --field-deep: oklch(0.26 0.13 268);
+  --field-fg: oklch(0.975 0.01 245);
+  --field-muted: oklch(0.84 0.045 255);
+  --field-rule: oklch(0.44 0.12 268);
+  --field-panel: oklch(0.22 0.1 268);
+
+  --ring: oklch(0.6 0.13 200);
+  --shadow-color: 250 60% 20%;
+}
+
+[data-theme="dark"] {
+  --bg: oklch(0.165 0.042 270);
+  --bg-raised: oklch(0.205 0.052 270);
+  --bg-sunk: oklch(0.135 0.035 270);
+  --fg: oklch(0.95 0.012 245);
+  --fg-muted: oklch(0.77 0.035 255);
+  --rule: oklch(0.3 0.05 270);
+  --rule-strong: oklch(0.4 0.06 268);
+
+  --primary: oklch(0.8 0.115 190);
+  --primary-hover: oklch(0.86 0.1 190);
+  --primary-fg: oklch(0.19 0.06 270);
+
+  --accent: oklch(0.8 0.11 190);
+  --glaze: oklch(0.76 0.12 190);
+  --saffron: oklch(0.82 0.14 78);
+  --saffron-ink: oklch(0.84 0.13 80);
+  --danger: oklch(0.72 0.16 25);
+  --danger-soft: oklch(0.27 0.07 25);
+  --ok: oklch(0.78 0.12 165);
+
+  --field: oklch(0.255 0.125 268);
+  --field-deep: oklch(0.205 0.1 268);
+  --field-fg: oklch(0.965 0.012 245);
+  --field-muted: oklch(0.82 0.045 255);
+  --field-rule: oklch(0.38 0.11 268);
+  --field-panel: oklch(0.16 0.07 270);
+
+  --ring: oklch(0.8 0.115 190);
+  --shadow-color: 270 70% 3%;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-raised: var(--bg-raised);
+  --color-bg-sunk: var(--bg-sunk);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-fg: var(--primary-fg);
+  --color-accent: var(--accent);
+  --color-glaze: var(--glaze);
+  --color-saffron: var(--saffron);
+  --color-saffron-ink: var(--saffron-ink);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-ok: var(--ok);
+  --color-field: var(--field);
+  --color-field-deep: var(--field-deep);
+  --color-field-fg: var(--field-fg);
+  --color-field-muted: var(--field-muted);
+  --color-field-rule: var(--field-rule);
+  --color-field-panel: var(--field-panel);
+  --color-ring: var(--ring);
+
+  /* shadcn aliases, so copied components keep working */
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  --color-input: var(--rule-strong);
+  --color-border: var(--rule);
+  --color-muted-foreground: var(--fg-muted);
+  --color-destructive: var(--danger);
+
+  --font-sans: "Geologica Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Martian Mono Variable", ui-monospace, "Cascadia Code", monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    scroll-padding-top: 5rem;
+    scrollbar-color: var(--rule-strong) var(--bg);
+    accent-color: var(--primary);
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.6;
+    font-variation-settings: "SHRP" 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    caret-color: var(--accent);
+  }
+  ::selection {
+    background: var(--glaze);
+    color: oklch(0.2 0.07 268);
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+    font-variation-settings: "SHRP" 60;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  a {
+    text-underline-offset: 0.22em;
+    text-decoration-thickness: 1px;
+  }
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+  [data-field] {
+    --ring: var(--saffron);
+    color-scheme: dark;
+    scrollbar-color: var(--field-rule) transparent;
+  }
+  [data-field] ::selection {
+    background: var(--saffron);
+    color: oklch(0.22 0.08 268);
+  }
+}
+
+@layer utilities {
+  .display {
+    font-variation-settings: "SHRP" 100;
+    letter-spacing: -0.035em;
+    line-height: 0.98;
+    font-weight: 720;
+  }
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Scalloped plate rim used where a cobalt field meets the porcelain ground. */
+  .rim {
+    height: 12px;
+    background:
+      radial-gradient(circle at 50% 0, var(--field) 0 6px, transparent 6.5px) 0 0 / 18px 12px repeat-x;
+  }
+  .rim-up {
+    height: 12px;
+    background:
+      radial-gradient(circle at 50% 100%, var(--field) 0 6px, transparent 6.5px) 0 0 / 18px 12px repeat-x;
+  }
+  .lift {
+    box-shadow:
+      0 1px 2px hsl(var(--shadow-color) / 0.08),
+      0 12px 32px -12px hsl(var(--shadow-color) / 0.22);
+  }
+}
+
+/* One authored load moment; content is visible by default when motion is reduced. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+@keyframes seat-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ring-draw {
+  from {
+    stroke-dashoffset: var(--len, 1200);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes hub-pulse {
+  0% {
+    opacity: 0;
+    transform: scale(1);
+  }
+  12% {
+    opacity: 0.9;
+    transform: scale(1.04);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.7);
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rise {
+    animation: rise 0.9s var(--ease-out-expo) both;
+    animation-delay: var(--d, 0ms);
+  }
+  .seat-in {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: seat-in 0.7s var(--ease-out-expo) both;
+    animation-delay: var(--d, 0ms);
+  }
+  .hub-pulse {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: hub-pulse 1.5s ease-out 0.45s both;
+  }
+  .ring-draw {
+    stroke-dasharray: var(--len, 1200);
+    animation: ring-draw 1.6s var(--ease-out-expo) both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -21,6 +21,9 @@ pub enum AppError {
     Conflict(String),
     #[error("wrong e-mail or password")]
     InvalidCredentials,
+    /// 400 tied to one request field, so a form can show it in place.
+    #[error("{1}")]
+    Field(&'static str, String),
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -42,6 +45,7 @@ impl IntoResponse for AppError {
             AppError::RateLimited(_) => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
             AppError::Conflict(_) => (StatusCode::CONFLICT, "email_taken"),
             AppError::InvalidCredentials => (StatusCode::UNAUTHORIZED, "invalid_credentials"),
+            AppError::Field(..) => (StatusCode::BAD_REQUEST, "bad_request"),
             AppError::Internal(e) => {
                 tracing::error!(error = %e, "internal error");
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal")
@@ -51,14 +55,26 @@ impl IntoResponse for AppError {
             AppError::Internal(_) => "internal error".to_string(),
             other => other.to_string(),
         };
-        (
+        let mut resp = (
             status,
             Json(ApiError {
                 error: code.into(),
                 message,
+                field: match &self {
+                    AppError::Field(f, _) => Some((*f).to_string()),
+                    AppError::Conflict(_) => Some("email".to_string()),
+                    _ => None,
+                },
             }),
         )
-            .into_response()
+            .into_response();
+        if matches!(self, AppError::RateLimited(_)) {
+            resp.headers_mut().insert(
+                axum::http::header::RETRY_AFTER,
+                axum::http::HeaderValue::from_static("900"),
+            );
+        }
+        resp
     }
 }
 

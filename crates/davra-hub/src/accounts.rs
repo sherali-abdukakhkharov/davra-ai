@@ -191,6 +191,10 @@ async fn start_session(
 fn with_cookie(status: StatusCode, cookie: HeaderValue, body: impl Serialize) -> Response {
     let mut resp = (status, Json(serde_json::to_value(body).unwrap_or_default())).into_response();
     resp.headers_mut().append(SET_COOKIE, cookie);
+    resp.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store"),
+    );
     resp
 }
 
@@ -215,18 +219,23 @@ pub async fn register(
     let name = req.name.trim();
     let email = req.email.trim();
     if name.is_empty() || name.chars().count() > 100 {
-        return Err(AppError::BadRequest(
+        return Err(AppError::Field(
+            "name",
             "enter your name (up to 100 characters)".into(),
         ));
     }
     if !valid_email(email) {
-        return Err(AppError::BadRequest("enter a valid e-mail address".into()));
+        return Err(AppError::Field(
+            "email",
+            "enter a valid e-mail address".into(),
+        ));
     }
     let n = req.password.chars().count();
     if !(MIN_PASSWORD..=MAX_PASSWORD).contains(&n) {
-        return Err(AppError::BadRequest(format!(
-            "password must be {MIN_PASSWORD} to {MAX_PASSWORD} characters"
-        )));
+        return Err(AppError::Field(
+            "password",
+            format!("password must be {MIN_PASSWORD} to {MAX_PASSWORD} characters"),
+        ));
     }
     let pw = req.password.clone();
     let hash = tokio::task::spawn_blocking(move || hash_password(&pw))
@@ -349,8 +358,13 @@ impl FromRequestParts<AppState> for SessionUser {
     }
 }
 
-pub async fn session(SessionUser(user): SessionUser) -> Json<UserResponse> {
-    Json(UserResponse { user })
+pub async fn session(SessionUser(user): SessionUser) -> Response {
+    let mut resp = Json(UserResponse { user }).into_response();
+    resp.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store"),
+    );
+    resp
 }
 
 #[cfg(test)]
