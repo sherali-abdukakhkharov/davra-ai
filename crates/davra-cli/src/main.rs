@@ -209,15 +209,19 @@ async fn run(cli: Cli) -> Result<()> {
             let token = read_token(token_stdin)?;
             let client = Client::new(&hub, token.clone(), Duration::from_secs(15))?;
             let me = client.me().await.context("the hub rejected this token")?;
-            config::store_token(&hub, &token)?;
+            let stored = config::store_token(&hub, &token)?;
             let mut cfg = config::Config::load()?;
             cfg.hub = Some(hub.clone());
             if project.is_some() {
                 cfg.default_project = project;
             }
             cfg.save()?;
+            let place = match &stored {
+                config::Stored::Keychain => "the OS keychain".to_string(),
+                config::Stored::File(p) => format!("{} (no OS keychain here)", p.display()),
+            };
             println!(
-                "Logged in to {hub} as @{} (org {}). Token stored in the OS keychain.",
+                "Logged in to {hub} as @{} (org {}). Token stored in {place}.",
                 me.member.handle, me.org
             );
             let projects: Vec<&str> = me.projects.iter().map(|p| p.slug.as_str()).collect();
@@ -234,7 +238,7 @@ async fn run(cli: Cli) -> Result<()> {
             let cfg = config::Config::load()?;
             let hub = cfg.hub.context("not logged in")?;
             config::delete_token(&hub)?;
-            println!("Token for {hub} removed from the OS keychain.");
+            println!("Token for {hub} removed.");
         }
         Cmd::Whoami => {
             let (client, target) = client_for(&cwd, Duration::from_secs(15))?;

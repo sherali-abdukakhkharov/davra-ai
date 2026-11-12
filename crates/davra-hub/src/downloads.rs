@@ -68,7 +68,7 @@ echo
 echo "Next:"
 echo "  davra login --hub $HUB"
 echo "  davra setup claude"
-echo "(The token is kept in the Secret Service keyring; on a headless box set DAVRA_TOKEN instead.)"
+echo "(The token goes to the Secret Service keyring, or ~/.davra/credentials.toml (0600) where there is none.)"
 "#;
 
 /// The hub's own public URL: configured, else derived from the request.

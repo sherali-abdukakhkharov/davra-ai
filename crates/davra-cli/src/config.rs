@@ -1,6 +1,6 @@
 //! Local client state: `~/.davra/config.toml` (no secrets) and the token in
-//! the OS keychain. `DAVRA_TOKEN` / `DAVRA_HUB` override both, for CI and
-//! containers where no keychain exists.
+//! the OS keychain (or `~/.davra/credentials.toml`, mode 0600, where there is
+//! no keychain). `DAVRA_TOKEN` / `DAVRA_HUB` override both, for CI.
 
 use anyhow::{bail, Context, Result};
 use davra_core::project_file;
@@ -61,17 +61,94 @@ fn entry(hub: &str) -> Result<keyring::Entry> {
     keyring::Entry::new(KEYRING_SERVICE, hub).context("OS keychain is not available")
 }
 
-pub fn store_token(hub: &str, token: &str) -> Result<()> {
-    entry(hub)?
-        .set_password(token)
-        .context("could not write the token to the OS keychain (set DAVRA_TOKEN instead)")
+/// Fallback for machines without a keychain (headless Linux servers):
+/// `~/.davra/credentials.toml`, readable only by the user.
+fn credentials_path() -> Result<PathBuf> {
+    Ok(dir()?.join("credentials.toml"))
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct Credentials {
+    #[serde(default)]
+    tokens: std::collections::BTreeMap<String, String>,
+}
+
+fn read_credentials() -> Result<Credentials> {
+    let p = credentials_path()?;
+    if !p.exists() {
+        return Ok(Credentials::default());
+    }
+    let text = std::fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?;
+    toml::from_str(&text).with_context(|| format!("parsing {}", p.display()))
+}
+
+fn write_credentials(c: &Credentials) -> Result<()> {
+    let p = credentials_path()?;
+    if c.tokens.is_empty() {
+        if p.exists() {
+            std::fs::remove_file(&p)?;
+        }
+        return Ok(());
+    }
+    std::fs::create_dir_all(p.parent().expect("credentials have a parent"))?;
+    let text = toml::to_string_pretty(c)?;
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&p)?;
+        f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        f.write_all(text.as_bytes())?;
+    }
+    #[cfg(not(unix))]
+    std::fs::write(&p, text)?;
+    Ok(())
+}
+
+/// Where `store_token` put the token.
+pub enum Stored {
+    Keychain,
+    File(PathBuf),
+}
+
+pub fn store_token(hub: &str, token: &str) -> Result<Stored> {
+    let keychain = entry(hub).and_then(|e| e.set_password(token).map_err(Into::into));
+    let mut creds = read_credentials().unwrap_or_default();
+    match keychain {
+        Ok(()) => {
+            // Never leave an older copy on disk next to the keychain one.
+            if creds.tokens.remove(hub).is_some() {
+                write_credentials(&creds)?;
+            }
+            Ok(Stored::Keychain)
+        }
+        Err(_) => {
+            creds.tokens.insert(hub.to_string(), token.to_string());
+            write_credentials(&creds)?;
+            Ok(Stored::File(credentials_path()?))
+        }
+    }
 }
 
 pub fn delete_token(hub: &str) -> Result<()> {
-    match entry(hub)?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(e).context("could not remove the token from the OS keychain"),
+    if let Ok(e) = entry(hub) {
+        match e.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            // No keychain on this machine: the file below is all there is.
+            Err(keyring::Error::PlatformFailure(_)) | Err(keyring::Error::NoStorageAccess(_)) => {}
+            Err(e) => return Err(e).context("could not remove the token from the OS keychain"),
+        }
     }
+    let mut creds = read_credentials()?;
+    if creds.tokens.remove(hub).is_some() {
+        write_credentials(&creds)?;
+    }
+    Ok(())
 }
 
 pub fn load_token(hub: &str) -> Result<String> {
@@ -80,12 +157,20 @@ pub fn load_token(hub: &str) -> Result<String> {
             return Ok(t.trim().to_string());
         }
     }
-    match entry(hub)?.get_password() {
-        Ok(t) => Ok(t),
-        Err(keyring::Error::NoEntry) => {
-            bail!("not logged in to {hub}: run `davra login --hub {hub}`")
-        }
+    let keychain = entry(hub).and_then(|e| match e.get_password() {
+        Ok(t) => Ok(Some(t)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(anyhow::Error::from(e)),
+    });
+    if let Ok(Some(t)) = keychain {
+        return Ok(t);
+    }
+    if let Some(t) = read_credentials()?.tokens.get(hub) {
+        return Ok(t.clone());
+    }
+    match keychain {
         Err(e) => Err(e).context("could not read the token from the OS keychain"),
+        _ => bail!("not logged in to {hub}: run `davra login --hub {hub}`"),
     }
 }
 
