@@ -9,6 +9,7 @@ mod error;
 mod github;
 mod handoffs;
 mod questions;
+mod team;
 mod telegram;
 mod tgexport;
 mod trust;

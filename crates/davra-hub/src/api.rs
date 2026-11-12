@@ -86,6 +86,27 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/web/tokens/{id}/revoke",
             post(crate::webapp::revoke_token),
         )
+        .route(
+            "/api/v1/web/projects/{org}/{slug}/invites",
+            get(crate::team::list_invites).post(crate::team::create_invite),
+        )
+        .route(
+            "/api/v1/web/projects/{org}/{slug}/invites/{id}/revoke",
+            post(crate::team::revoke_invite),
+        )
+        .route(
+            "/api/v1/web/projects/{org}/{slug}/members/{handle}/role",
+            post(crate::team::set_member_role),
+        )
+        .route(
+            "/api/v1/web/projects/{org}/{slug}/members/{handle}/remove",
+            post(crate::team::remove_member),
+        )
+        .route("/api/v1/web/invites/{code}", get(crate::team::invite_info))
+        .route(
+            "/api/v1/web/invites/{code}/accept",
+            post(crate::team::accept_invite),
+        )
         .route("/api/{*rest}", axum::routing::any(api_not_found))
         .layer(DefaultBodyLimit::max(64 * 1024))
         // A repo sync carries many handoff files; it has its own limit.

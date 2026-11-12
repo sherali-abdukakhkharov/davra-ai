@@ -334,6 +334,72 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -b "$WJ" "${J[@]}" -d '{"text":"no
 [ "$code" = 403 ] || fail "web POST without X-Davra -> $code"
 ok "web app: create project, post, agents with roles, one-time token works then revokes, others' projects hidden, CSRF enforced"
 
+echo "== team invites"
+# New accounts come from another address so the register rate limit is not the subject here.
+IP2=(-H 'cf-connecting-ip: 10.0.0.2')
+code_of() { grep -o '"url":"[^"]*"' <<<"$1" | sed 's#.*/invite/##; s#"$##'; }
+body=$(WP /api/v1/web/projects/dilnoza-lab/crm/invites '{"role":"owner"}')
+has "$body" '"field":"role"' "owners are not handed out by invite"
+body=$(WP /api/v1/web/projects/dilnoza-lab/crm/invites '{"role":"member"}')
+has "$body" "$DAVRA_HUB/invite/" "invite url"
+INV=$(code_of "$body")
+body=$(curl -s "$DAVRA_HUB/api/v1/web/invites/$INV")
+has "$body" '"status":"open"' "public invite info"
+has "$body" '"invited_by":"dilnoza"' "invite says who invited"
+BJ="$WORK/bobur.txt"
+curl -s -c "$BJ" "${J[@]}" "${CSRF[@]}" "${IP2[@]}" -d '{"name":"Bobur","email":"bobur@qitmir.uz","password":"bobur-password"}' "$DAVRA_HUB/api/v1/auth/register" >/dev/null
+BP() { local path=$1; shift; curl -s -b "$BJ" "${J[@]}" "${CSRF[@]}" -d "$1" "$DAVRA_HUB$path"; }
+body=$(BP "/api/v1/web/invites/$INV/accept" '{}')
+has "$body" '"field":"handle"' "a new person picks a handle"
+body=$(BP "/api/v1/web/invites/$INV/accept" '{"handle":"Bobur"}')
+has "$body" '"handle":"bobur"' "accepted"
+has "$body" '"already":false' "joined"
+body=$(BP "/api/v1/web/invites/$INV/accept" '{"handle":"bobur2"}')
+has "$body" "already used" "single use"
+body=$(curl -s -b "$BJ" "$DAVRA_HUB/api/v1/web/projects/dilnoza-lab/crm")
+has "$body" '"role":"member"' "bobur is a member"
+has "$body" '@bobur joined the project as member.' "join notice in the room"
+body=$(BP /api/v1/web/projects/dilnoza-lab/crm/invites '{"role":"viewer"}')
+has "$body" '"error":"forbidden"' "members cannot invite"
+body=$(WP /api/v1/web/projects/dilnoza-lab/crm/members/bobur/role '{"role":"viewer"}')
+has "$body" '"handle":"bobur"' "role change returns members"
+body=$(BP /api/v1/web/projects/dilnoza-lab/crm/messages '{"text":"salom"}')
+has "$body" '"error":"forbidden"' "a viewer cannot post"
+body=$(WP /api/v1/web/projects/dilnoza-lab/crm/members/dilnoza/role '{"role":"member"}')
+has "$body" "your own role" "nobody changes their own role"
+# Hand-over: a person added from the CLI claims their member through a link.
+"$HUB" member add sardor --kind human --org dilnoza-lab --project crm --role viewer >/dev/null
+body=$(WP /api/v1/web/projects/dilnoza-lab/crm/invites '{"role":"maintainer","member":"@sardor"}')
+INV2=$(code_of "$body")
+has "$body" '"member":"sardor"' "hand-over invite"
+SJ="$WORK/sardor.txt"
+curl -s -c "$SJ" "${J[@]}" "${CSRF[@]}" "${IP2[@]}" -d '{"name":"Sardor","email":"sardor@qitmir.uz","password":"sardor-password"}' "$DAVRA_HUB/api/v1/auth/register" >/dev/null
+body=$(curl -s -b "$SJ" "${J[@]}" "${CSRF[@]}" -X POST "$DAVRA_HUB/api/v1/web/invites/$INV2/accept")
+has "$body" '"handle":"sardor"' "claimed the existing member"
+body=$(curl -s -b "$SJ" "$DAVRA_HUB/api/v1/web/projects/dilnoza-lab/crm")
+has "$body" '"role":"maintainer"' "the hand-over sets the invited role"
+body=$(WP /api/v1/web/projects/dilnoza-lab/crm/invites '{"role":"member","member":"sardor"}')
+has "$body" "already has a Davra account" "no hand-over of a member with an account"
+# Revoke.
+body=$(WP /api/v1/web/projects/dilnoza-lab/crm/invites '{"role":"viewer"}')
+INV3=$(code_of "$body")
+IID=$(grep -o '"id":"[0-9a-f-]*"' <<<"$body" | head -1 | cut -d'"' -f4)
+body=$(W "$DAVRA_HUB/api/v1/web/projects/dilnoza-lab/crm/invites")
+has "$body" "$IID" "open invites listed"
+code=$(W -o /dev/null -w '%{http_code}' "${CSRF[@]}" -X POST "$DAVRA_HUB/api/v1/web/projects/dilnoza-lab/crm/invites/$IID/revoke")
+[ "$code" = 204 ] || fail "revoke invite -> $code"
+has "$(curl -s "$DAVRA_HUB/api/v1/web/invites/$INV3")" '"status":"revoked"' "revoked invite"
+# Remove and leave.
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$SJ" "${CSRF[@]}" -X POST "$DAVRA_HUB/api/v1/web/projects/dilnoza-lab/crm/members/dilnoza/remove")
+[ "$code" = 403 ] || fail "a maintainer cannot remove the owner -> $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$BJ" "${CSRF[@]}" -X POST "$DAVRA_HUB/api/v1/web/projects/dilnoza-lab/crm/members/bobur/remove")
+[ "$code" = 204 ] || fail "leave -> $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$BJ" "$DAVRA_HUB/api/v1/web/projects/dilnoza-lab/crm")
+[ "$code" = 404 ] || fail "after leaving the project is gone -> $code"
+code=$(W -o /dev/null -w '%{http_code}' "${CSRF[@]}" -X POST "$DAVRA_HUB/api/v1/web/projects/dilnoza-lab/crm/members/dilnoza/remove")
+[ "$code" = 403 ] || fail "an owner cannot leave -> $code"
+ok "team: invite links (single use, public info, revoke), hand-over of CLI members, roles by rank, leave and remove"
+
 echo "== installers"
 out=$(curl -fs "$DAVRA_HUB/install.sh")
 has "$out" "HUB='$DAVRA_HUB'" "install.sh points at this hub"

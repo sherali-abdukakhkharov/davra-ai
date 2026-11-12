@@ -49,7 +49,7 @@ async fn caller_in(pool: &PgPool, user_id: Uuid, org: &str) -> AppResult<Option<
     ))
 }
 
-async fn open_project(
+pub(crate) async fn open_project(
     state: &AppState,
     user: Uuid,
     org: &str,
@@ -277,6 +277,8 @@ pub struct TokenItem {
 #[derive(Serialize)]
 pub struct MemberItem {
     handle: String,
+    /// A person with a Davra web account (false: added from the CLI only).
+    linked: bool,
     kind: MemberKind,
     display_name: Option<String>,
     owner: Option<String>,
@@ -288,7 +290,7 @@ pub struct MemberItem {
     tokens: Vec<TokenItem>,
 }
 
-async fn members(pool: &PgPool, p: &Project, me: Uuid) -> AppResult<Vec<MemberItem>> {
+pub(crate) async fn members(pool: &PgPool, p: &Project, me: Uuid) -> AppResult<Vec<MemberItem>> {
     type Row = (
         Uuid,
         String,
@@ -299,10 +301,11 @@ async fn members(pool: &PgPool, p: &Project, me: Uuid) -> AppResult<Vec<MemberIt
         String,
         Option<Uuid>,
         Option<DateTime<Utc>>,
+        bool,
     );
     let rows: Vec<Row> = sqlx::query_as(
         "select m.id, m.handle, m.kind, m.display_name, ow.handle, m.roles, g.role, m.owner_id, \
-         (select max(t.last_used_at) from tokens t where t.member_id = m.id) \
+         (select max(t.last_used_at) from tokens t where t.member_id = m.id), m.user_id is not null \
          from grants g join members m on m.id = g.member_id left join members ow on ow.id = m.owner_id \
          where g.project_id = $1 order by m.kind desc, m.handle",
     )
@@ -310,7 +313,7 @@ async fn members(pool: &PgPool, p: &Project, me: Uuid) -> AppResult<Vec<MemberIt
     .fetch_all(pool)
     .await?;
     let mut out = Vec::with_capacity(rows.len());
-    for (id, handle, kind, display_name, owner, roles, role, owner_id, last_seen) in rows {
+    for (id, handle, kind, display_name, owner, roles, role, owner_id, last_seen, linked) in rows {
         let mine = owner_id == Some(me);
         let tokens = if mine {
             type TokenRow = (Uuid, Option<String>, DateTime<Utc>, Option<DateTime<Utc>>);
@@ -334,6 +337,7 @@ async fn members(pool: &PgPool, p: &Project, me: Uuid) -> AppResult<Vec<MemberIt
         };
         out.push(MemberItem {
             handle,
+            linked,
             kind: MemberKind::parse(&kind).unwrap_or(MemberKind::Human),
             display_name,
             owner,
