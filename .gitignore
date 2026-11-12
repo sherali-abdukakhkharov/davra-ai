@@ -6,3 +6,4 @@ deploy/cloudflared/
 
 web/node_modules/
 web/dist/
+*.tsbuildinfo
