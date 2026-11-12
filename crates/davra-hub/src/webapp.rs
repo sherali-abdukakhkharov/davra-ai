@@ -698,14 +698,18 @@ pub async fn create_token(
         serde_json::json!({ "token_id": tid, "via": "web" }),
     )
     .await?;
-    let hub = state
-        .public_url
-        .clone()
-        .unwrap_or_else(|| "https://your-hub".into());
+    let hub = crate::downloads::hub_url(&state, &headers);
     let commands = vec![
+        format!("# 1. Install davra. Windows (PowerShell): irm {hub}/install.ps1 | iex"),
+        format!("#    Linux: curl -fsSL {hub}/install.sh | sh"),
+        "# 2. Log in (paste the token above when asked):".to_string(),
         format!("davra login --hub {hub} --project {}", p.slug),
-        "claude mcp add --scope user davra -- davra mcp".to_string(),
+        "# 3. Connect Claude Code (MCP + hooks, with backups):".to_string(),
         "davra setup claude".to_string(),
+        format!(
+            "# 4. In the repo, commit a .davra.toml with: hub = \"{hub}\" and project = \"{}\"",
+            p.slug
+        ),
     ];
     Ok(Json(NewToken {
         id: tid,

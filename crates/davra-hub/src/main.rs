@@ -3,6 +3,7 @@ mod admin;
 mod api;
 mod auth;
 mod db;
+mod downloads;
 mod embed;
 mod error;
 mod github;
@@ -33,6 +34,8 @@ pub struct AppState {
     pub embedder: Option<Arc<embed::Embedder>>,
     /// Public base URL, e.g. https://davra.qitmir.uz (shown in connect commands).
     pub public_url: Option<String>,
+    /// Prebuilt davra binaries + SHA256SUMS, served under /downloads.
+    pub downloads_dir: Option<std::path::PathBuf>,
 }
 
 #[derive(Parser)]
@@ -77,6 +80,9 @@ enum Cmd {
         /// Public base URL of this hub, e.g. https://davra.example.uz
         #[arg(long, env = "DAVRA_PUBLIC_URL")]
         public_url: Option<String>,
+        /// Directory with prebuilt davra binaries and SHA256SUMS.
+        #[arg(long, env = "DAVRA_DOWNLOADS_DIR")]
+        downloads_dir: Option<std::path::PathBuf>,
     },
     /// Apply database migrations and exit.
     Migrate,
@@ -269,6 +275,7 @@ async fn main() -> Result<()> {
             embed_url,
             embed_model,
             public_url,
+            downloads_dir,
         } => {
             if !no_migrate {
                 migrate(&pool).await?;
@@ -309,6 +316,7 @@ async fn main() -> Result<()> {
                 web_dir,
                 embedder,
                 public_url: public_url.map(|u| u.trim_end_matches('/').to_string()),
+                downloads_dir: downloads_dir.filter(|d| d.join("SHA256SUMS").is_file()),
             });
             let listener = tokio::net::TcpListener::bind(&bind)
                 .await

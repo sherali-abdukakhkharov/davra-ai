@@ -2,6 +2,7 @@ mod client;
 mod config;
 mod handoffs;
 mod mcp;
+mod setup;
 
 use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
@@ -83,9 +84,16 @@ enum Cmd {
     /// Handoff files in this repository (see handoffs in .davra.toml).
     #[command(subcommand)]
     Handoffs(HandoffsCmd),
+    /// Connect Claude Code on this machine: MCP server + hooks (with backups).
     Setup {
         #[arg(value_parser = ["claude"])]
         client: String,
+        /// Show what would change, change nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Remove the Davra hooks and MCP server again.
+        #[arg(long, conflicts_with = "dry_run")]
+        undo: bool,
     },
 }
 
@@ -361,24 +369,16 @@ async fn run(cli: Cli) -> Result<()> {
                 .await?;
             print!("{}", format::handoffs_text(&l));
         }
-        Cmd::Setup { client: _ } => {
-            let exe = std::env::current_exe()?;
-            let exe = exe.display();
-            println!("# 1. Register the MCP server for all your projects:");
-            println!("claude mcp add --scope user davra -- \"{exe}\" mcp\n");
-            println!(
-                "# 2. Add these hooks to ~/.claude/settings.json (merge with existing \"hooks\"):"
-            );
-            let hooks = serde_json::json!({
-                "hooks": {
-                    "SessionStart": [{ "hooks": [{ "type": "command", "command": format!("\"{exe}\" brief --hook") }] }],
-                    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": format!("\"{exe}\" inbox --hook") }] }]
-                }
-            });
-            println!("{}", serde_json::to_string_pretty(&hooks)?);
-            println!(
-                "\n# The installer (v0.4) will do both steps for you, with a diff and a backup."
-            );
+        Cmd::Setup {
+            client: _,
+            dry_run,
+            undo,
+        } => {
+            if undo {
+                setup::undo()?;
+            } else {
+                setup::run(dry_run)?;
+            }
         }
     }
     Ok(())

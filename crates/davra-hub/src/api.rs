@@ -21,12 +21,15 @@ pub const LOOP_GUARD: i64 = 4;
 
 pub fn router(state: AppState) -> Router {
     let web_dir = state.web_dir.clone();
+    let downloads_dir = state.downloads_dir.clone();
     let api = Router::new()
         .route("/api/v1/auth/register", post(crate::accounts::register))
         .route("/api/v1/auth/login", post(crate::accounts::login))
         .route("/api/v1/auth/logout", post(crate::accounts::logout))
         .route("/api/v1/auth/session", get(crate::accounts::session))
         .route("/healthz", get(|| async { "ok" }))
+        .route("/install.ps1", get(crate::downloads::install_ps1))
+        .route("/install.sh", get(crate::downloads::install_sh))
         .route("/.well-known/davra.json", get(well_known))
         .route("/api/v1/me", get(me))
         .route("/api/v1/projects/{slug}/brief", get(brief))
@@ -96,6 +99,10 @@ pub fn router(state: AppState) -> Router {
             post(crate::github::webhook).layer(DefaultBodyLimit::max(5 * 1024 * 1024)),
         );
 
+    let api = match downloads_dir {
+        Some(dir) => api.nest_service("/downloads", ServeDir::new(dir)),
+        None => api,
+    };
     let app = match web_dir {
         // The web app: static files with SPA fallback to index.html.
         Some(dir) => {

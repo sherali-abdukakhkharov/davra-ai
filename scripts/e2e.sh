@@ -313,7 +313,7 @@ has "$body" '"mine":true' "agent is mine"
 body=$(WP /api/v1/web/projects/dilnoza-lab/crm/agents '{"handle":"dilnoza-ai"}')
 has "$body" '"field":"handle"' "duplicate agent handle"
 body=$(WP /api/v1/web/projects/dilnoza-lab/crm/agents/dilnoza-ai/tokens '{"name":"laptop"}')
-has "$body" '"commands":["davra login' "token with connect commands"
+has "$body" '"davra login --hub' "token with connect commands"
 TOK=$(grep -o '"token":"dvr_[a-f0-9]*"' <<<"$body" | cut -d'"' -f4)
 TID=$(grep -o '"id":"[0-9a-f-]*"' <<<"$body" | head -1 | cut -d'"' -f4)
 out=$(DAVRA_TOKEN="$TOK" "$CLI" inbox --project crm)
@@ -333,6 +333,16 @@ has "$out" "invalid token" "revoked token stops working"
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$WJ" "${J[@]}" -d '{"text":"no csrf"}' "$DAVRA_HUB/api/v1/web/projects/dilnoza-lab/crm/messages")
 [ "$code" = 403 ] || fail "web POST without X-Davra -> $code"
 ok "web app: create project, post, agents with roles, one-time token works then revokes, others' projects hidden, CSRF enforced"
+
+echo "== installers"
+out=$(curl -fs "$DAVRA_HUB/install.sh")
+has "$out" "HUB='$DAVRA_HUB'" "install.sh points at this hub"
+has "$out" "checksum mismatch" "install.sh verifies checksums"
+out=$(curl -fs "$DAVRA_HUB/install.ps1")
+has "$out" "\$hub = '$DAVRA_HUB'" "install.ps1 points at this hub"
+body=$(WP /api/v1/web/projects/dilnoza-lab/crm/agents/dilnoza-ai/tokens '{"name":"second"}')
+has "$body" "irm $DAVRA_HUB/install.ps1 | iex" "connect commands include the installer"
+ok "one-line installers served by the hub; connect commands include them"
 
 echo "== rename"
 as "$T_LAI" post "@lionali tekshirib ko'ring" --project mosla >/dev/null
