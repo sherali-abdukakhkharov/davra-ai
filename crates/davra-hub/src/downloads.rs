@@ -18,7 +18,9 @@ $exe = Join-Path $dir 'davra.exe'
 $tmp = "$exe.download"
 Write-Host "Downloading davra from $hub ..."
 Invoke-WebRequest -UseBasicParsing "$hub/downloads/davra-windows-x86_64.exe" -OutFile $tmp
-$sums = [string](Invoke-WebRequest -UseBasicParsing "$hub/downloads/SHA256SUMS").Content
+$r = Invoke-WebRequest -UseBasicParsing "$hub/downloads/SHA256SUMS"
+# Windows PowerShell 5.1 returns bytes for non-text content types.
+$sums = if ($r.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($r.Content) } else { [string]$r.Content }
 $want = ($sums -split "`n" | Where-Object { $_ -match 'davra-windows-x86_64\.exe' } | ForEach-Object { ($_.Trim() -split '\s+')[0] }) | Select-Object -First 1
 $got = (Get-FileHash $tmp -Algorithm SHA256).Hash.ToLower()
 if (-not $want -or $got -ne $want.ToLower()) { Remove-Item $tmp -Force; throw "davra: checksum mismatch, not installing" }

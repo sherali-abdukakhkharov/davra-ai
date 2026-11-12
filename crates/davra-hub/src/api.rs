@@ -100,7 +100,16 @@ pub fn router(state: AppState) -> Router {
         );
 
     let api = match downloads_dir {
-        Some(dir) => api.nest_service("/downloads", ServeDir::new(dir)),
+        Some(dir) => api
+            .route_service(
+                "/downloads/SHA256SUMS",
+                tower_http::set_header::SetResponseHeader::overriding(
+                    ServeFile::new(dir.join("SHA256SUMS")),
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/plain; charset=utf-8"),
+                ),
+            )
+            .nest_service("/downloads", ServeDir::new(dir)),
         None => api,
     };
     let app = match web_dir {
