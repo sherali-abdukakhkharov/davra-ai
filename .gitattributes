@@ -1,0 +1,5 @@
+# Keep LF everywhere: shell scripts must run, and sqlx checksums migration files.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.woff2 binary
