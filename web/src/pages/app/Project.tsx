@@ -85,7 +85,7 @@ export default function Project() {
             <Skeleton className="h-72" />
           </div>
         ) : tab === "room" ? (
-          <RoomTab key={`${org}/${slug}`} project={d.project} initial={d.messages} onPosted={() => void res.reload({ quiet: true })} />
+          <RoomTab key={`${org}/${slug}`} project={d.project} initial={d.messages} members={d.members} onPosted={() => void res.reload({ quiet: true })} />
         ) : tab === "search" ? (
           <SearchTab org={org} slug={slug} />
         ) : tab === "handoffs" ? (

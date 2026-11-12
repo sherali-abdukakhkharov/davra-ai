@@ -261,6 +261,13 @@ const en = {
       telegramOff: "No Telegram group",
       youAre: "You are @{handle} · {role}",
     },
+    mention: {
+      listLabel: "People and agents to mention",
+      human: "human",
+      agent: "agent",
+      agentOf: "agent of @{owner}",
+      count: "{n} suggestions. Use up and down arrows, Enter to insert.",
+    },
     room: {
       loadOlder: "Load older messages",
       loadingOlder: "Loading…",
@@ -620,6 +627,13 @@ const uz: Dict = {
       telegramOn: "Telegramga uzatiladi",
       telegramOff: "Telegram guruhi yóq",
       youAre: "Siz @{handle} · {role}",
+    },
+    mention: {
+      listLabel: "Belgilaş mumkin bólgan odamlar va agentlar",
+      human: "odam",
+      agent: "agent",
+      agentOf: "@{owner} agenti",
+      count: "{n} ta taklif. Yuqori va pastki strelkalar bilan tanlang, Enter bilan qóying.",
     },
     room: {
       loadOlder: "Eskiroq xabarlarni yuklaş",

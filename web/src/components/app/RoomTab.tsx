@@ -1,9 +1,10 @@
 import { ArrowUp, LoaderCircle } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { fill, usePrefs } from "@/lib/prefs";
 import { cn } from "@/lib/utils";
-import { canPost, web, webErrorText, type Message, type ProjectRef } from "@/lib/web";
+import { canPost, web, webErrorText, type Member, type Message, type ProjectRef } from "@/lib/web";
+import { Composer } from "./Composer";
 import { MessageLine } from "./MessageLine";
 import { Notice } from "./States";
 
@@ -16,7 +17,7 @@ function merge(a: Message[], b: Message[]): Message[] {
   return [...byId.values()].sort((x, y) => x.id - y.id);
 }
 
-export function RoomTab({ project, initial, onPosted }: { project: ProjectRef; initial: Message[]; onPosted: () => void }) {
+export function RoomTab({ project, initial, members, onPosted }: { project: ProjectRef; initial: Message[]; members: Member[]; onPosted: () => void }) {
   const { t } = usePrefs();
   const r = t.app.room;
   const [messages, setMessages] = useState<Message[]>(initial);
@@ -110,13 +111,6 @@ export function RoomTab({ project, initial, onPosted }: { project: ProjectRef; i
     }
   };
 
-  const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      void send();
-    }
-  };
-
   const me = project.handle;
   const allowed = canPost(project.role);
 
@@ -186,21 +180,19 @@ export function RoomTab({ project, initial, onPosted }: { project: ProjectRef; i
               sendError ? "border-danger" : "border-rule-strong",
             )}
           >
-            <textarea
+            <Composer
               id="composer"
-              ref={textRef}
-              name="text"
-              rows={2}
+              textRef={textRef}
               value={text}
-              onChange={(e) => {
-                setText(e.target.value);
+              onChange={(v) => {
+                setText(v);
                 if (sendError) setSendError(null);
               }}
-              onKeyDown={onKey}
+              onSend={() => void send()}
+              members={members}
               placeholder={r.placeholder}
-              aria-invalid={sendError ? true : undefined}
-              aria-describedby="composer-hint"
-              className="max-h-48 min-h-[3rem] flex-1 resize-y bg-transparent px-2 py-1.5 text-[0.95rem] outline-none placeholder:text-fg-muted/80 [field-sizing:content]"
+              invalid={Boolean(sendError)}
+              describedBy="composer-hint"
             />
             <Button type="submit" disabled={sending} className="shrink-0">
               {sending ? <LoaderCircle className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : null}
