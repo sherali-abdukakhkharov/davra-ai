@@ -1,0 +1,6 @@
+target
+.git
+deploy/.env
+deploy/cloudflared
+web/node_modules
+web/dist

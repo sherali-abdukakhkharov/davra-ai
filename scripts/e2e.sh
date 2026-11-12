@@ -1,0 +1,294 @@
+#!/usr/bin/env bash
+# End-to-end test of davra-hub + davra against a real Postgres.
+# Needs: DATABASE_URL pointing at an empty database, and both binaries built.
+#   BIN=target/debug DATABASE_URL=postgres://... scripts/e2e.sh
+set -euo pipefail
+
+BIN=${BIN:-target/debug}
+HUB="$BIN/davra-hub"
+CLI="$BIN/davra"
+PORT=${PORT:-18080}
+export DAVRA_HUB="http://127.0.0.1:$PORT"
+export DAVRA_HOME="$(mktemp -d)"
+WORK="$(mktemp -d)"
+pass=0
+
+ok()   { pass=$((pass + 1)); echo "  ok  $*"; }
+fail() { echo "  FAIL $*" >&2; exit 1; }
+has()  { grep -qF -- "$2" <<<"$1" || fail "$3: expected '$2' in: $1"; }
+hasnt(){ ! grep -qF -- "$2" <<<"$1" || fail "$3: did not expect '$2' in: $1"; }
+as()   { local t=$1; shift; DAVRA_TOKEN="$t" "$CLI" "$@"; }
+
+echo "== setup"
+"$HUB" migrate >/dev/null
+"$HUB" org create shaxsiy --name "Shaxsiy" >/dev/null
+"$HUB" project create mosla --name "Mosla" >/dev/null
+"$HUB" project create secret-proj >/dev/null
+"$HUB" member add lionali --kind human --project mosla --role owner >/dev/null
+"$HUB" member add gulom --kind human --tg-user 42 --project mosla --role maintainer >/dev/null
+"$HUB" member add lionali-ai --kind agent --owner lionali --project mosla >/dev/null
+"$HUB" member add gulom-ai --kind agent --owner gulom --project mosla >/dev/null
+"$HUB" member add guest --kind human --project mosla --role viewer >/dev/null
+T_LI=$("$HUB" token create lionali 2>/dev/null)
+T_LAI=$("$HUB" token create lionali-ai --name laptop 2>/dev/null)
+T_GAI=$("$HUB" token create gulom-ai 2>/dev/null)
+T_GUEST=$("$HUB" token create guest 2>/dev/null)
+ok "org, 2 projects, 5 members, 4 tokens"
+
+cat >"$WORK/result.json" <<'JSON'
+{ "name": "mosla · AI team", "type": "private_supergroup", "id": 1,
+  "messages": [
+    { "id": 1, "type": "service", "date": "2026-11-01T09:00:00", "text": "" },
+    { "id": 2, "type": "message", "date": "2026-11-03T10:00:00", "date_unixtime": "1762164000",
+      "from": "G'ulom", "from_id": "user42", "text": "ui-kit: Textarea maxLength endi soft limit bo'ladi, DOM'ga berilmaydi" },
+    { "id": 3, "type": "message", "date": "2026-11-03T10:05:00", "from": "Ali", "from_id": "user7",
+      "reply_to_message_id": 2, "text": ["IndustryStep uchun ", { "type": "bold", "text": "counter" }, " kerak"] },
+    { "id": 4, "type": "message", "date": "2026-11-03T10:06:00", "from": "G'ulom", "from_id": "user42",
+      "text": "DB parol: DB_PASSWORD=hunter2hunter2 (buni hech kim ko'rmasin)" }
+  ] }
+JSON
+out=$("$HUB" import-telegram mosla "$WORK/result.json")
+has "$out" "3 imported" "import"
+out=$("$HUB" import-telegram mosla "$WORK/result.json")
+has "$out" "0 imported" "re-import is idempotent"
+ok "telegram export import (idempotent)"
+
+"$HUB" serve --bind "127.0.0.1:$PORT" --no-migrate --cookie-secure false >"$WORK/hub.log" 2>&1 &
+HUB_PID=$!
+trap 'kill $HUB_PID 2>/dev/null || true; rm -rf "$DAVRA_HOME" "$WORK"' EXIT
+for _ in $(seq 1 50); do curl -fs "$DAVRA_HUB/healthz" >/dev/null 2>&1 && break; sleep 0.1; done
+curl -fs "$DAVRA_HUB/.well-known/davra.json" | grep -q '"protocol":1' || fail "well-known"
+ok "hub up, /.well-known/davra.json"
+
+echo "== auth"
+code=$(curl -s -o /dev/null -w '%{http_code}' "$DAVRA_HUB/api/v1/me")
+[ "$code" = 401 ] || fail "no token -> $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer dvr_0000" "$DAVRA_HUB/api/v1/me")
+[ "$code" = 401 ] || fail "bad token -> $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $T_LAI" "$DAVRA_HUB/api/v1/projects/secret-proj/brief")
+[ "$code" = 404 ] || fail "ungranted project -> $code"
+ok "401 without/with bad token, 404 for an ungranted project"
+
+out=$(as "$T_LAI" whoami)
+has "$out" "@lionali-ai (agent)" "whoami"
+has "$out" "owner: @lionali" "whoami owner"
+ok "whoami"
+
+echo "== secrets"
+out=$(as "$T_LAI" search "DB_PASSWORD" --project mosla)
+has "$out" "[REDACTED]" "imported secret redacted"
+hasnt "$out" "hunter2" "imported secret redacted"
+out=$(as "$T_LAI" post "deploy key: ghp_abcdefghijklmnopqrstuvwxyz0123456789 @gulom-ai" --project mosla 2>&1)
+has "$out" "secret was removed" "post redaction notice"
+ok "secrets redacted on import and on post"
+
+echo "== handoff flow"
+out=$(as "$T_LAI" post "@gulom-ai MOS-032: Textarea maxLength endi soft limit. IndustryStep.tsx:111 ga counter qo'shing, 500 dan oshsa canGenerate=false." --project mosla)
+has "$out" "posted #" "post"
+MSG_ID=$(grep -o '#[0-9]*' <<<"$out" | tr -d '#')
+out=$(as "$T_GAI" inbox --project mosla)
+has "$out" "MOS-032" "gulom-ai inbox has handoff"
+has "$out" "[peer_agent]" "trust label"
+out=$(as "$T_GAI" inbox --hook --project mosla </dev/null)
+has "$out" "MOS-032" "hook inbox prints"
+out=$(as "$T_GAI" inbox --hook --project mosla </dev/null)
+[ -z "$out" ] || fail "hook inbox must be empty after delivery, got: $out"
+ok "post -> addressed inbox -> hook delivers once, then adds nothing"
+
+# A human reply is [owner] for their own agent and [peer_human] for the other.
+curl -fs -X POST -H "Authorization: Bearer $T_LI" -H 'content-type: application/json' \
+  -d "{\"text\":\"@lionali-ai @gulom-ai rahmat, review qilaman\",\"reply_to\":$MSG_ID}" \
+  "$DAVRA_HUB/api/v1/projects/mosla/messages" >/dev/null
+out=$(as "$T_LAI" inbox --project mosla)
+has "$out" "lionali [owner]" "owner trust for own agent"
+out=$(as "$T_GAI" inbox --project mosla)
+has "$out" "lionali [peer_human]" "peer_human for other agent"
+ok "trust is relative to the reader"
+
+echo "== search"
+out=$(as "$T_GAI" search "MOS-032" --project mosla)
+has "$out" "MOS-032" "fts exact token"
+out=$(as "$T_GAI" search "Textarea maxlenght" --project mosla)
+has "$out" "Textarea" "trigram typo tolerance"
+out=$(as "$T_GAI" search "counter" --project mosla)
+has "$out" "IndustryStep" "imported rich text searchable"
+ok "full-text + trigram search"
+
+echo "== brief"
+out=$(as "$T_GAI" brief --project mosla)
+has "$out" "you are @gulom-ai" "brief header"
+has "$out" "@gulom-ai (agent of @gulom)" "brief members"
+has "$out" "Only messages marked [owner]" "trust preamble"
+[ ${#out} -lt 6000 ] || fail "brief too long: ${#out}"
+out=$(echo '{"cwd":"/nonexistent","hook_event_name":"SessionStart"}' | DAVRA_TOKEN=dvr_bad "$CLI" brief --hook; echo "rc=$?")
+has "$out" "rc=0" "hook never fails the session"
+ok "brief within budget; hook exits 0 on errors"
+
+echo "== guards"
+out=$(DAVRA_TOKEN="$T_GUEST" "$CLI" post "salom" --project mosla 2>&1 || true)
+has "$out" "viewers cannot post" "viewer"
+for i in 1 2; do as "$T_LAI" post "agent ping $i" --project mosla >/dev/null; as "$T_GAI" post "agent pong $i" --project mosla >/dev/null; done
+out=$(as "$T_LAI" post "one more" --project mosla 2>&1 || true)
+has "$out" "loop_guard" "loop guard"
+as "$T_LI" post "to'xtanglar, keyinroq" --project mosla >/dev/null
+out=$(as "$T_LAI" post "ok" --project mosla)
+has "$out" "posted #" "human unblocks agents"
+ok "viewer cannot post; loop guard stops agents until a human writes"
+
+echo "== get_message"
+body=$(curl -fs -H "Authorization: Bearer $T_GAI" "$DAVRA_HUB/api/v1/messages/$MSG_ID?context=1")
+has "$body" "\"id\":$MSG_ID" "get_message"
+ok "get_message with context"
+
+echo "== handoffs"
+"$HUB" member roles gulom-ai --set "core, auth" >/dev/null
+"$HUB" member roles lionali-ai --set "ui-kit" >/dev/null
+REPO="$WORK/repo"; mkdir -p "$REPO/docs/memory/handoffs"
+printf 'project = "mosla"\nhandoffs = "docs/memory/handoffs"\n' > "$REPO/.davra.toml"
+cat > "$REPO/docs/memory/handoffs/2026-10-30-db-to-core-MOS-018.md" <<'MD'
+---
+from: db
+to: core
+ticket: MOS-018
+status: done        # open | done
+created: 2026-10-30
+---
+Done: migrated
+What changed: tenants table.
+MD
+cat > "$REPO/docs/memory/handoffs/2026-11-02-architect-to-core-auth-MOS-020.md" <<'MD'
+---
+from: architect
+to: core, auth
+ticket: MOS-020
+status: open
+created: 2026-11-02
+---
+What changed: ContactListResponse gained nextCursor.
+What you need to do: switch to cursor paging.
+Done when: second page loads.
+MD
+before=$(curl -fs -H "Authorization: Bearer $T_GAI" "$DAVRA_HUB/api/v1/projects/mosla/inbox" | { grep -o '"id":' || true; } | wc -l)
+out=$(cd "$REPO" && DAVRA_TOKEN="$T_LAI" "$CLI" handoffs sync)
+has "$out" "2 new" "first sync imports"
+after=$(curl -fs -H "Authorization: Bearer $T_GAI" "$DAVRA_HUB/api/v1/projects/mosla/inbox" | { grep -o '"id":' || true; } | wc -l)
+[ "$before" = "$after" ] || fail "first sync must be quiet ($before -> $after inbox items)"
+out=$(cd "$REPO" && DAVRA_TOKEN="$T_LAI" "$CLI" handoffs sync)
+has "$out" "0 new, 0 updated" "second sync sends nothing"
+out=$(cd "$REPO" && DAVRA_TOKEN="$T_GAI" "$CLI" brief)
+has "$out" "Open handoffs for you (1)" "role-addressed handoff in brief"
+has "$out" "MOS-020 architect→core,auth" "handoff line"
+has "$out" "Your roles: core, auth" "roles in brief"
+ok "repo handoff files: quiet first import, cached re-sync, routed by role"
+
+# lionali-ai (role ui-kit) creates one through MCP; it lands as a file + announcement.
+mcp() { (printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"e2e","version":"0"}}}'; sleep 0.4
+  printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'; printf '%s\n' "$2"; sleep 2) \
+  | (cd "$REPO" && DAVRA_TOKEN="$1" timeout 10 "$CLI" mcp 2>>"$WORK/mcp.err") || true; }
+out=$(mcp "$T_LAI" '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"handoff_create","arguments":{"to":["core"],"ticket":"MOS-032","changed":"Textarea maxLength is a soft limit","todo":"add a counter in IndustryStep.tsx:111","done_when":"over 500 chars blocks generate"}}}')
+has "$out" "created and announced to core" "handoff_create via MCP"
+NEWFILE=$(ls "$REPO/docs/memory/handoffs" | grep ui-kit-to-core-MOS-032)
+[ -n "$NEWFILE" ] || fail "handoff file not written"
+grep -q "^from: ui-kit" "$REPO/docs/memory/handoffs/$NEWFILE" || fail "from should default to the sender's role"
+HID=$(grep -o 'Handoff #[0-9]*' <<<"$out" | tr -dc 0-9)
+out=$(as "$T_GAI" inbox --project mosla)
+has "$out" "Handoff #$HID · MOS-032 · ui-kit → core" "recipient's inbox has the announcement"
+ok "handoff_create writes a Mosla-format file and announces it to the role"
+
+out=$(mcp "$T_GAI" "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"handoff_done\",\"arguments\":{\"id\":$HID,\"note\":\"counter added, tests green\"}}}")
+has "$out" "now says status: done" "handoff_done via MCP"
+grep -q "^status: done" "$REPO/docs/memory/handoffs/$NEWFILE" || fail "file not marked done"
+grep -q "^Done: counter added, tests green" "$REPO/docs/memory/handoffs/$NEWFILE" || fail "done note missing"
+out=$(as "$T_LAI" inbox --project mosla)
+has "$out" "Done · handoff #$HID · MOS-032 · counter added, tests green" "sender is told"
+out=$(as "$T_GAI" handoffs list --status done --project mosla)
+has "$out" "#$HID MOS-032" "listed as done"
+ok "handoff_done updates the file, closes it on the hub, tells the sender"
+
+echo "== MCP over stdio"
+mcp_out=$( (
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"e2e","version":"0"}}}'
+  sleep 0.5
+  printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+  printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+  printf '%s\n' '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"history_search","arguments":{"query":"MOS-032","project":"mosla"}}}'
+  printf '%s\n' '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"team_brief","arguments":{"project":"mosla"}}}'
+  sleep 2
+) | DAVRA_TOKEN="$T_GAI" timeout 10 "$CLI" mcp 2>"$WORK/mcp.err" || true)
+for tool in projects team_brief inbox ack post history_search get_message handoffs get_handoff handoff_create handoff_done ask_owner; do
+  has "$mcp_out" "\"name\":\"$tool\"" "tools/list has $tool"
+done
+has "$mcp_out" "MOS-032" "tools/call history_search"
+has "$mcp_out" "you are @gulom-ai" "tools/call team_brief"
+has "$mcp_out" "Davra connects you" "server instructions"
+ok "initialize, tools/list (12 tools), tools/call"
+
+echo "== ask_owner"
+out=$(mcp "$T_LAI" '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ask_owner","arguments":{"question":"MOS-032 ni main ga merge qilaymi?","options":["Ha, merge qil","Yo'\''q, kut"]}}}')
+has "$out" "sent to @lionali" "ask_owner via MCP"
+QID=$(grep -o 'Question #[0-9]*' <<<"$out" | head -1 | tr -dc 0-9)
+out=$(as "$T_LI" inbox --project mosla)
+has "$out" "Question #$QID for @lionali: MOS-032 ni main ga merge qilaymi?" "owner sees the question"
+out=$(as "$T_GAI" answer "$QID" "ha" 2>&1 || true)
+has "$out" "not found" "only the owner can answer"
+as "$T_LI" answer "$QID" "Ha, merge qil" >/dev/null
+out=$(as "$T_LAI" inbox --project mosla)
+has "$out" "lionali [owner]" "answer arrives as owner"
+has "$out" "Answer to question #$QID: Ha, merge qil" "answer text"
+ok "ask_owner: question reaches the owner, only the owner answers, answer is [owner] for the agent"
+
+echo "== github webhook"
+GH_SECRET=$("$HUB" project github mosla --repo acme/mosla --public-url "$DAVRA_HUB" | awk '/Secret:/ {print $2}')
+GH_URL="$DAVRA_HUB/webhooks/github/shaxsiy/mosla"
+payload='{"ref":"refs/heads/main","pusher":{"name":"gulom"},"commits":[{}],"head_commit":{"message":"MOS-032: counter added"}}'
+sig="sha256=$(printf '%s' "$payload" | openssl dgst -sha256 -hmac "$GH_SECRET" -hex | awk '{print $NF}')"
+code=$(curl -s -o /dev/null -w '%{http_code}' -H 'X-GitHub-Event: push' -H "X-Hub-Signature-256: sha256=00" -d "$payload" "$GH_URL")
+[ "$code" = 401 ] || fail "bad signature -> $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' -H 'X-GitHub-Event: push' -H "X-Hub-Signature-256: $sig" -H 'content-type: application/json' -d "$payload" "$GH_URL")
+[ "$code" = 204 ] || fail "signed push -> $code"
+out=$(as "$T_GAI" search "counter added" --project mosla)
+has "$out" "github [external]: push to main by gulom: MOS-032: counter added" "push stored as external"
+ok "github webhook: bad signature 401, signed push stored as [external]"
+
+echo "== web accounts"
+J=(-H 'content-type: application/json')
+CSRF=(-H 'X-Davra: 1')
+JAR="$WORK/cookies.txt"
+code=$(curl -s -o /dev/null -w '%{http_code}' "${J[@]}" -d '{"name":"Ali","email":"ali@qitmir.uz","password":"long-enough-pw"}' "$DAVRA_HUB/api/v1/auth/register")
+[ "$code" = 403 ] || fail "register without X-Davra -> $code"
+hdrs=$(curl -s -D - -o "$WORK/reg.json" -c "$JAR" "${J[@]}" "${CSRF[@]}" -d '{"name":"Ali","email":"Ali@Qitmir.uz","password":"long-enough-pw"}' "$DAVRA_HUB/api/v1/auth/register")
+has "$hdrs" "HTTP/1.1 201" "register"
+has "$hdrs" "HttpOnly; SameSite=Lax" "session cookie flags"
+has "$(cat "$WORK/reg.json")" '"name":"Ali"' "register body"
+body=$(curl -s "${J[@]}" "${CSRF[@]}" -d '{"name":"X","email":"ali@qitmir.uz","password":"long-enough-pw"}' "$DAVRA_HUB/api/v1/auth/register")
+has "$body" '"error":"email_taken"' "e-mail unique, case-insensitive"
+body=$(curl -s "${J[@]}" "${CSRF[@]}" -d '{"name":"X","email":"x@qitmir.uz","password":"short"}' "$DAVRA_HUB/api/v1/auth/register")
+has "$body" '"error":"bad_request"' "short password"
+body=$(curl -s -b "$JAR" "$DAVRA_HUB/api/v1/auth/session")
+has "$body" '"email":"Ali@Qitmir.uz"' "session"
+ok "register: CSRF header required, cookie HttpOnly+Lax, unique e-mail, password policy"
+
+body=$(curl -s "${J[@]}" "${CSRF[@]}" -d '{"email":"ali@qitmir.uz","password":"wrong-password"}' "$DAVRA_HUB/api/v1/auth/login")
+has "$body" '"error":"invalid_credentials"' "wrong password"
+body=$(curl -s "${J[@]}" "${CSRF[@]}" -d '{"email":"nobody@qitmir.uz","password":"whatever-pw"}' "$DAVRA_HUB/api/v1/auth/login")
+has "$body" '"error":"invalid_credentials"' "unknown e-mail looks the same"
+body=$(curl -s -c "$JAR" "${J[@]}" "${CSRF[@]}" -d '{"email":"ALI@qitmir.uz","password":"long-enough-pw"}' "$DAVRA_HUB/api/v1/auth/login")
+has "$body" '"name":"Ali"' "login"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR" -c "$JAR" "${CSRF[@]}" -X POST "$DAVRA_HUB/api/v1/auth/logout")
+[ "$code" = 204 ] || fail "logout -> $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR" "$DAVRA_HUB/api/v1/auth/session")
+[ "$code" = 401 ] || fail "session after logout -> $code"
+for _ in $(seq 1 9); do curl -s -o /dev/null "${J[@]}" "${CSRF[@]}" -d '{"email":"ali@qitmir.uz","password":"guess-guess"}' "$DAVRA_HUB/api/v1/auth/login"; done
+body=$(curl -s "${J[@]}" "${CSRF[@]}" -d '{"email":"ali@qitmir.uz","password":"guess-guess"}' "$DAVRA_HUB/api/v1/auth/login")
+has "$body" '"error":"rate_limited"' "login rate limit"
+ok "login: same error for wrong password and unknown e-mail, logout ends the session, rate limited"
+
+body=$(curl -s -D - "$DAVRA_HUB/api/v1/nope")
+has "$body" "404" "unknown api path"
+has "$body" '"error":"not_found"' "json 404"
+has "$body" "content-security-policy: default-src 'self'" "csp header"
+has "$body" "x-content-type-options: nosniff" "nosniff header"
+ok "unknown API paths are JSON 404s; security headers set"
+
+echo
+echo "e2e: all $pass checks passed"

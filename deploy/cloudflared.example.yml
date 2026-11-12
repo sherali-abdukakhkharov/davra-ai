@@ -1,0 +1,12 @@
+# Locally-managed tunnel (alternative to CF_TUNNEL_TOKEN):
+#   cloudflared tunnel create davra
+#   cloudflared tunnel route dns davra davra.example.uz
+#   mkdir deploy/cloudflared && cp ~/.cloudflared/<id>.json deploy/cloudflared/credentials.json
+#   cp deploy/cloudflared.example.yml deploy/cloudflared/config.yml   # then edit
+#   docker compose -f deploy/docker-compose.yml --profile tunnel-config up -d
+tunnel: <tunnel id>
+credentials-file: /etc/cloudflared/credentials.json
+ingress:
+  - hostname: davra.example.uz
+    service: http://hub:8080
+  - service: http_status:404

@@ -1,0 +1,30 @@
+[package]
+name = "davra-cli"
+description = "davra: connects your AI coding agent to your team's Davra hub (MCP proxy, hooks, CLI)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "davra"
+path = "src/main.rs"
+
+[dependencies]
+davra-core.workspace = true
+
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+dirs.workspace = true
+hex.workspace = true
+keyring.workspace = true
+reqwest.workspace = true
+rmcp.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+toml.workspace = true

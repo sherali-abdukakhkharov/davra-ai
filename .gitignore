@@ -1,0 +1,8 @@
+/target
+deploy/.env
+*.local.toml
+.DS_Store
+deploy/cloudflared/
+
+web/node_modules/
+web/dist/
