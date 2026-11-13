@@ -331,7 +331,7 @@ pub fn state(client: ClientId, exe: &str) -> ClientState {
     };
     match client {
         ClientId::Claude => {
-            let mcp = match mcp_registered() {
+            let mcp = match mcp_command() {
                 Ok(m) => m,
                 Err(_) => {
                     return s(
@@ -342,15 +342,22 @@ pub fn state(client: ClientId, exe: &str) -> ClientState {
                     )
                 }
             };
-            let missing = claude_settings_path()
+            let hooks = claude_settings_path()
                 .and_then(|p| parse_json(&p, read_opt(&p)?.as_deref()))
-                .map(|v| HOOKS.iter().filter(|h| !has_davra_hook(&v, h.0)).count())
-                .unwrap_or(HOOKS.len());
-            match (mcp, missing) {
-                (true, 0) => s(true, true, false, "MCP server and hooks"),
+                .map(|v| HOOKS.iter().filter(|h| has_davra_hook(&v, h.0)).count())
+                .unwrap_or(0);
+            let mut plan = Plan::default();
+            if let Err(e) = claude_plan(&mut plan, exe, mcp.as_deref()) {
+                return s(true, false, false, &format!("{e:#}"));
+            }
+            let stale = mcp.as_deref().is_some_and(|c| !same_exe(c, exe))
+                || (hooks == HOOKS.len() && !plan.is_empty());
+            match (mcp.is_some(), hooks) {
+                _ if plan.is_empty() => s(true, true, false, "MCP server and hooks"),
+                _ if stale => s(true, false, true, "set up for another davra; update it"),
                 (true, _) => s(true, false, true, "MCP server; hooks missing"),
-                (false, 0) => s(true, false, true, "hooks; MCP server missing"),
-                (false, _) => s(true, false, false, "not connected"),
+                (false, 0) => s(true, false, false, "not connected"),
+                (false, _) => s(true, false, true, "hooks; MCP server missing"),
             }
         }
         ClientId::Cursor | ClientId::Codex => {
@@ -405,6 +412,28 @@ pub fn merge_hooks(settings: &mut Value, exe: &str) {
     if !settings["hooks"].is_object() {
         settings["hooks"] = json!({});
     }
+    // Davra hooks left pointing at another davra (an older install elsewhere,
+    // or one that is gone) move to this one.
+    for (event, args, _) in HOOKS {
+        let suffix = format!(" {args}");
+        for g in settings["hooks"][event]
+            .as_array_mut()
+            .into_iter()
+            .flatten()
+        {
+            for h in g["hooks"].as_array_mut().into_iter().flatten() {
+                let stale = h["command"]
+                    .as_str()
+                    .and_then(|c| c.strip_suffix(&suffix))
+                    .is_some_and(|prefix| {
+                        prefix.to_lowercase().contains("davra") && !same_exe(prefix, exe)
+                    });
+                if stale {
+                    h["command"] = json!(format!("{exe} {args}"));
+                }
+            }
+        }
+    }
     for (event, args, timeout) in HOOKS {
         if has_davra_hook(settings, event) {
             continue;
@@ -449,6 +478,12 @@ pub fn claude_settings_path() -> Result<PathBuf> {
 
 /// Errors when Claude Code is not installed.
 pub fn mcp_registered() -> Result<bool> {
+    Ok(mcp_command()?.is_some())
+}
+
+/// The command Claude Code runs for the davra MCP server; None when it is not
+/// registered. Errors when Claude Code is not installed.
+pub fn mcp_command() -> Result<Option<String>> {
     let out = command("claude")
         .args(["mcp", "get", "davra"])
         .output()
@@ -461,25 +496,65 @@ pub fn mcp_registered() -> Result<bool> {
     {
         bail!("Claude Code (`claude`) was not found on PATH; install it first");
     }
-    Ok(out.status.success())
+    if !out.status.success() {
+        return Ok(None);
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    Ok(Some(
+        text.lines()
+            .find_map(|l| l.trim().strip_prefix("Command:"))
+            .map(|c| c.trim().to_string())
+            .unwrap_or_default(),
+    ))
 }
 
-fn claude_connect(exe: &str) -> Result<Plan> {
-    let mut plan = Plan::default();
-    let registered = mcp_registered()?;
+/// Whether two spellings name the same davra executable.
+pub fn same_exe(a: &str, b: &str) -> bool {
+    let norm = |s: &str| {
+        let s = s.trim().trim_matches('"').replace('\\', "/");
+        if cfg!(windows) {
+            s.to_lowercase()
+        } else {
+            s
+        }
+    };
+    norm(a) == norm(b)
+}
+
+/// Hooks and MCP server for `exe`, given what `claude mcp get davra` reported.
+fn claude_plan(plan: &mut Plan, exe: &str, mcp: Option<&str>) -> Result<()> {
     json_edit(
-        &mut plan,
+        plan,
         "Claude Code hooks: brief at session start, inbox on each prompt and when a turn ends",
         claude_settings_path()?,
         |s| merge_hooks(s, exe),
     )?;
-    if !registered {
-        plan.run(
+    match mcp {
+        None => plan.run(
             "Register the davra MCP server for all projects",
             "claude",
             &["mcp", "add", "--scope", "user", "davra", "--", exe, "mcp"],
-        );
+        ),
+        Some(current) if !same_exe(current, exe) => {
+            plan.run(
+                &format!("Remove the davra MCP server that runs {current}"),
+                "claude",
+                &["mcp", "remove", "--scope", "user", "davra"],
+            );
+            plan.run(
+                "Register it again with this davra",
+                "claude",
+                &["mcp", "add", "--scope", "user", "davra", "--", exe, "mcp"],
+            );
+        }
+        Some(_) => {}
     }
+    Ok(())
+}
+
+fn claude_connect(exe: &str) -> Result<Plan> {
+    let mut plan = Plan::default();
+    claude_plan(&mut plan, exe, mcp_command()?.as_deref())?;
     plan.note("Hooks only speak inside repositories with a .davra.toml.");
     plan.note("For live messages while the agent works, start Claude Code with `davra claude`.");
     Ok(plan)
@@ -874,6 +949,18 @@ mod tests {
         let once = s.clone();
         merge_hooks(&mut s, "C:/u/.davra/bin/davra.exe");
         assert_eq!(s, once, "idempotent");
+        // A reinstall elsewhere moves Davra's hooks along, and only Davra's.
+        merge_hooks(&mut s, "C:/u/AppData/Local/Davra/bin/davra.exe");
+        assert_eq!(
+            s["hooks"]["Stop"][0]["hooks"][0]["command"],
+            "C:/u/AppData/Local/Davra/bin/davra.exe inbox --hook --stop"
+        );
+        assert_eq!(
+            s["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+            "node brief.mjs"
+        );
+        assert_eq!(s["hooks"]["SessionStart"].as_array().unwrap().len(), 2);
+        assert!(same_exe("C:\\u\\davra.exe", "\"C:/u/davra.exe\""));
         remove_hooks(&mut s);
         assert_eq!(s["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
         assert!(s["hooks"].get("Stop").is_none());
