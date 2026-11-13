@@ -193,9 +193,11 @@ pub async fn ingest(
             let projects = crate::db::projects_of(&mut *tx, &caller).await?;
             match projects.as_slice() {
                 [only] => only.slug.clone(),
-                _ => return Err(AppError::BadRequest(format!(
+                _ => {
+                    return Err(AppError::BadRequest(format!(
                     "set the {PROJECT_HEADER} header (run `davra setup claude` in the repository)"
-                ))),
+                )))
+                }
             }
         }
     };
@@ -382,10 +384,63 @@ pub async fn report(
     }))
 }
 
+/// One project's totals for one local day; None when nothing was reported.
+pub async fn day_totals(
+    db: impl sqlx::PgExecutor<'_>,
+    project: uuid::Uuid,
+    day: NaiveDate,
+) -> sqlx::Result<Option<Usage>> {
+    let u: Usage = sqlx::query_as(&format!(
+        "select {SUMS} from agent_usage u where u.project_id = $1 and u.day = $2"
+    ))
+    .bind(project)
+    .bind(day)
+    .fetch_one(db)
+    .await?;
+    Ok((!u.is_empty()).then_some(u))
+}
+
+/// 1234 -> "1.2k", 3_400_000 -> "3.4M".
+pub fn compact(n: i64) -> String {
+    let f = n as f64;
+    match n.abs() {
+        0..=999 => n.to_string(),
+        1_000..=999_999 => format!("{:.1}k", f / 1e3).replace(".0k", "k"),
+        _ => format!("{:.1}M", f / 1e6).replace(".0M", "M"),
+    }
+}
+
+impl Usage {
+    pub fn tokens(&self) -> i64 {
+        self.input_tokens + self.output_tokens + self.cache_read_tokens + self.cache_write_tokens
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn compact_numbers_and_daily_line() {
+        assert_eq!(compact(950), "950");
+        assert_eq!(compact(1_000), "1k");
+        assert_eq!(compact(12_340), "12.3k");
+        assert_eq!(compact(3_400_000), "3.4M");
+        let u = Usage {
+            cost_usd: 2.104,
+            input_tokens: 1_000,
+            output_tokens: 200_000,
+            cache_read_tokens: 1_000_000,
+            lines_added: 340,
+            lines_removed: 120,
+            commits: 3,
+            ..Usage::default()
+        };
+        assert_eq!(
+            crate::tgcard::usage_line(crate::tgcard::Lang::Uz, &u),
+            "AI sarfi: $2.10 · 1.2M token · +340/−120 qator · 3 commit"
+        );
+    }
     #[test]
     fn sums_claude_code_metrics_and_drops_identity() {
         let body = json!({ "resourceMetrics": [{

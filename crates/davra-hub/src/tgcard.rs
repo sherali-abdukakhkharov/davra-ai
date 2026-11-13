@@ -485,6 +485,7 @@ pub fn ci_failed(lang: Lang, ev: &GhEvent) -> Option<Card> {
 }
 
 /// The daily digest card. Every string comes from the model and is escaped.
+#[allow(clippy::too_many_arguments)]
 pub fn daily(
     lang: Lang,
     project: &str,
@@ -493,6 +494,7 @@ pub fn daily(
     messages: i64,
     events: i64,
     people: &People,
+    usage: Option<&crate::usage::Usage>,
 ) -> Card {
     let mut html = format!(
         "<p>🗓 <b>{}</b> · {} · {}</p><p><i>{}</i></p>",
@@ -520,8 +522,39 @@ pub fn daily(
         Lang::En => format!("{messages} messages · {events} GitHub events · written by Claude"),
         Lang::Uz => format!("{messages} ta xabar · {events} ta GitHub hodisasi · Claude yozdi"),
     };
+    let usage = usage.map(|u| usage_line(lang, u));
+    let mut plain = s.text(lang, project, day);
+    if let Some(line) = &usage {
+        html.push_str(&format!("<p>🤖 {}</p>", esc(line)));
+        plain.push_str(&format!("\n\n🤖 {line}"));
+    }
     html.push_str(&format!("<footer>{}</footer>", esc(&footer)));
-    Card::new(html, &s.text(lang, project, day), people, false)
+    Card::new(html, &plain, people, false)
+}
+
+/// "AI: $2.10 · 1.2M tokens · +340/−120 lines · 3 commits" for the daily card.
+pub fn usage_line(lang: Lang, u: &crate::usage::Usage) -> String {
+    use crate::usage::compact;
+    let mut parts = vec![
+        format!("${:.2}", u.cost_usd),
+        format!("{} {}", compact(u.tokens()), lang.pick("tokens", "token")),
+    ];
+    if u.lines_added + u.lines_removed > 0 {
+        parts.push(format!(
+            "+{}/−{} {}",
+            compact(u.lines_added),
+            compact(u.lines_removed),
+            lang.pick("lines", "qator")
+        ));
+    }
+    if u.commits > 0 {
+        parts.push(format!("{} commit", u.commits));
+    }
+    format!(
+        "{}: {}",
+        lang.pick("AI usage", "AI sarfi"),
+        parts.join(" · ")
+    )
 }
 
 /// A one-line notice as a card (used where a project wants plain messages).

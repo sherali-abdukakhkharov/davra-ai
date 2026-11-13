@@ -297,13 +297,23 @@ pub async fn run_one(
     };
     let day = p.day.format("%d.%m.%Y").to_string();
     let plain = summary.text(lang, &p.name, &day);
+    let usage = crate::usage::day_totals(&state.pool, p.id, p.day).await?;
     if let Some(to) = preview_to {
         let tg = state
             .telegram
             .as_ref()
             .ok_or_else(|| anyhow!("no Telegram bot configured"))?;
         let people = crate::telegram::mentioned_people(&state.pool, p.org_id, &plain).await?;
-        let card = crate::tgcard::daily(lang, &p.name, &day, &summary, talk, events, &people);
+        let card = crate::tgcard::daily(
+            lang,
+            &p.name,
+            &day,
+            &summary,
+            talk,
+            events,
+            &people,
+            usage.as_ref(),
+        );
         tg.send_card(to, &card, true, None, None, None).await?;
         return Ok(Outcome::Previewed);
     }
@@ -316,7 +326,16 @@ pub async fn run_one(
             author_name: Some("davra".into()),
             kind: "system",
             topic: Some("digest".into()),
-            body: davra_core::redact::redact(&plain).0,
+            body: davra_core::redact::redact(&match &usage {
+                Some(u) => format!(
+                    "{plain}
+
+🤖 {}",
+                    crate::tgcard::usage_line(lang, u)
+                ),
+                None => plain.clone(),
+            })
+            .0,
             reply_to: None,
             mentions: vec![],
             source: "api",
@@ -333,7 +352,18 @@ pub async fn run_one(
         p.tg_chat_id,
         id,
         &plain,
-        |lang, people| crate::tgcard::daily(lang, &name, &day, &summary, talk, events, people),
+        |lang, people| {
+            crate::tgcard::daily(
+                lang,
+                &name,
+                &day,
+                &summary,
+                talk,
+                events,
+                people,
+                usage.as_ref(),
+            )
+        },
         None,
     )
     .await
