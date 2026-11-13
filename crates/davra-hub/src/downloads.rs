@@ -26,6 +26,13 @@ if (-not $want) { throw "davra: no checksum for davra-windows-x86_64.exe on $hub
 Invoke-WebRequest -UseBasicParsing "$hub/downloads/davra-windows-x86_64.exe?sha=$want" -OutFile $tmp
 $got = (Get-FileHash $tmp -Algorithm SHA256).Hash.ToLower()
 if (-not $want -or $got -ne $want.ToLower()) { Remove-Item $tmp -Force; throw "davra: checksum mismatch, not installing" }
+# A running davra (an open `davra claude` or MCP server) can't be overwritten, but it can be
+# renamed: move it aside, and the next session starts the new one.
+if (Test-Path $exe) {
+  Remove-Item "$exe.old" -Force -ErrorAction SilentlyContinue
+  Move-Item -Force $exe "$exe.old"
+  Remove-Item "$exe.old" -Force -ErrorAction SilentlyContinue
+}
 Move-Item -Force $tmp $exe
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if ((($userPath -split ';') | Where-Object { $_ -eq $dir }).Count -eq 0) {
