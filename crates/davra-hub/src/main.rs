@@ -8,6 +8,7 @@ mod embed;
 mod error;
 mod github;
 mod handoffs;
+mod live;
 mod questions;
 mod team;
 mod telegram;
@@ -39,6 +40,8 @@ pub struct AppState {
     pub downloads_dir: Option<std::path::PathBuf>,
     /// Header carrying the real client IP (set by a trusted proxy). None: the socket peer.
     pub client_ip_header: Option<axum::http::HeaderName>,
+    /// Project ids with a new message, for inbox requests that wait.
+    pub events: live::Events,
 }
 
 #[derive(Parser)]
@@ -328,6 +331,8 @@ async fn main() -> Result<()> {
                 }
                 None => None,
             };
+            let events = live::channel();
+            tokio::spawn(live::run_listener(pool.clone(), events.clone()));
             let app = api::router(AppState {
                 pool,
                 telegram,
@@ -339,6 +344,7 @@ async fn main() -> Result<()> {
                 public_url: public_url.map(|u| u.trim_end_matches('/').to_string()),
                 downloads_dir: downloads_dir.filter(|d| d.join("SHA256SUMS").is_file()),
                 client_ip_header,
+                events,
             });
             let listener = tokio::net::TcpListener::bind(&bind)
                 .await

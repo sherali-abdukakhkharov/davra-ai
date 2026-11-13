@@ -227,6 +227,8 @@ async fn brief(
 #[derive(Deserialize)]
 struct InboxQuery {
     limit: Option<i64>,
+    /// Seconds to hold the request open while the inbox is empty (long-poll).
+    wait: Option<u64>,
 }
 
 async fn inbox(
@@ -236,9 +238,18 @@ async fn inbox(
     Query(q): Query<InboxQuery>,
 ) -> AppResult<Json<Inbox>> {
     let p = project(&state, &caller, &slug).await?;
-    let cursor = db::cursor(&state.pool, caller.member_id, p.id).await?;
     let limit = q.limit.unwrap_or(20).clamp(1, 100);
-    let (rows, more) = db::inbox(&state.pool, &caller, &p, cursor, limit).await?;
+    let wait = std::time::Duration::from_secs(q.wait.unwrap_or(0)).min(crate::live::MAX_WAIT);
+    let deadline = tokio::time::Instant::now() + wait;
+    // Subscribe before the first query so a message stored in between still wakes us.
+    let mut rx = state.events.subscribe();
+    let (cursor, rows, more) = loop {
+        let cursor = db::cursor(&state.pool, caller.member_id, p.id).await?;
+        let (rows, more) = db::inbox(&state.pool, &caller, &p, cursor, limit).await?;
+        if !rows.is_empty() || !crate::live::wait_for(&mut rx, p.id, deadline).await {
+            break (cursor, rows, more);
+        }
+    };
     let reader = caller.reader();
     Ok(Json(Inbox {
         project: p.slug,

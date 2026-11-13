@@ -105,6 +105,24 @@ out=$(as "$T_GAI" inbox --project mosla)
 has "$out" "lionali [peer_human]" "peer_human for other agent"
 ok "trust is relative to the reader"
 
+echo "== live inbox"
+curl -fs -X POST -H "Authorization: Bearer $T_GAI" -H 'content-type: application/json' -d '{"up_to":1000000}' \
+  "$DAVRA_HUB/api/v1/projects/mosla/ack" >/dev/null
+start=$(date +%s)
+curl -fs -H "Authorization: Bearer $T_GAI" "$DAVRA_HUB/api/v1/projects/mosla/inbox?wait=2" >"$WORK/empty.json"
+[ $(( $(date +%s) - start )) -ge 2 ] || fail "an empty inbox should hold the request for wait seconds"
+has "$(cat "$WORK/empty.json")" '"messages":[]' "empty after the wait"
+curl -fs -H "Authorization: Bearer $T_GAI" "$DAVRA_HUB/api/v1/projects/mosla/inbox?wait=20" >"$WORK/live.json" &
+LIVE_PID=$!
+sleep 1
+start=$(date +%s)
+curl -fs -X POST -H "Authorization: Bearer $T_LI" -H 'content-type: application/json' \
+  -d '{"text":"@gulom-ai live test"}' "$DAVRA_HUB/api/v1/projects/mosla/messages" >/dev/null
+wait $LIVE_PID
+[ $(( $(date +%s) - start )) -le 3 ] || fail "a waiting inbox must return as soon as a message lands"
+has "$(cat "$WORK/live.json")" "live test" "the waiting request got the new message"
+ok "inbox?wait holds an empty inbox and returns the moment a message arrives"
+
 echo "== search"
 out=$(as "$T_GAI" search "MOS-032" --project mosla)
 has "$out" "MOS-032" "fts exact token"
