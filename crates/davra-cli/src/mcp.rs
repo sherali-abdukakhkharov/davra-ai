@@ -11,7 +11,8 @@ use davra_core::format;
 use davra_core::handoff_file::HandoffFile;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CustomNotification, Implementation, ServerCapabilities, ServerConfig, ServerNotification,
+    CustomNotification, Implementation, ProtocolVersion, ServerCapabilities, ServerConfig,
+    ServerNotification,
 };
 use rmcp::service::{Peer, RoleServer};
 use rmcp::{tool, tool_handler, tool_router, ServerHandler, ServiceExt};
@@ -418,6 +419,18 @@ impl ServerHandler for DavraMcp {
         ServerConfig::new(caps)
             .with_server_info(Implementation::new("davra", env!("CARGO_PKG_VERSION")))
             .with_instructions(instructions)
+    }
+
+    /// A channel pushes notifications outside any request, which needs a
+    /// session. From 2026-07-28 MCP is stateless (no `initialize`), so as a
+    /// channel we offer only the versions that still have one; the client
+    /// then connects with `initialize`. Otherwise every version is fine.
+    fn supported_protocol_versions(&self) -> std::borrow::Cow<'static, [ProtocolVersion]> {
+        std::borrow::Cow::Borrowed(if channel_mode() {
+            ProtocolVersion::known_up_to(&ProtocolVersion::LATEST_WITH_INITIALIZE)
+        } else {
+            ProtocolVersion::KNOWN_VERSIONS
+        })
     }
 }
 
