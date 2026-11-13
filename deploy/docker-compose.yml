@@ -38,6 +38,9 @@ services:
       DAVRA_CLIENT_IP_HEADER: ${DAVRA_CLIENT_IP_HEADER:-cf-connecting-ip}
       DAVRA_MASTER_KEY: ${DAVRA_MASTER_KEY:-}
       DAVRA_LANG: ${DAVRA_LANG:-en}   # labels in Telegram cards: en or uz
+      DAVRA_ANTHROPIC_API_KEY: ${DAVRA_ANTHROPIC_API_KEY:-}   # turns on the daily digest
+      DAVRA_DIGEST_HOUR: ${DAVRA_DIGEST_HOUR:-19}
+      DAVRA_DIGEST_MODEL: ${DAVRA_DIGEST_MODEL:-claude-haiku-5-5}
       RUST_LOG: ${RUST_LOG:-davra_hub=info,tower_http=warn}
     ports:
       - "127.0.0.1:${DAVRA_PORT:-8787}:8080"   # local only; the tunnel publishes it

@@ -108,6 +108,20 @@ webhook URL and secret. Pushes, PRs and CI results appear in the room as `[exter
 every delivery's HMAC signature is checked. Set `DAVRA_MASTER_KEY` (`openssl rand -hex 32`) and the
 hub stores these secrets sealed (ChaCha20-Poly1305); plaintext ones are sealed at the next start.
 
+### Telegram cards
+
+The bot writes rich messages (Bot API 10.1+): one card per message, pushes/PRs/passing CI in one
+digest message per 15 minutes, a separate loud card for a failed run. `DAVRA_LANG=uz` gives Uzbek
+labels. `davra-hub tg-preview --to <telegram user id>` sends samples to a private chat;
+`davra-hub project tg-format <slug> plain` keeps a group on plain text.
+
+### Daily digest
+
+Set `DAVRA_ANTHROPIC_API_KEY` and, after `DAVRA_DIGEST_HOUR` (default 19, the database's local
+time), Claude Haiku summarizes each project's day (done, in progress, blockers, next) into the room
+and its Telegram group. Quiet days are skipped. Try it first with
+`davra-hub digest <slug> --preview-to <telegram user id>` (sends only to you, stores nothing).
+
 ## Development
 
 ```sh

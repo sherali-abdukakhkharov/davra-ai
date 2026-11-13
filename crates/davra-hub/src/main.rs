@@ -3,6 +3,7 @@ mod admin;
 mod api;
 mod auth;
 mod db;
+mod digest;
 mod downloads;
 mod embed;
 mod error;
@@ -48,6 +49,31 @@ pub struct AppState {
     pub master_key: Option<Arc<secrets::MasterKey>>,
     /// Org-scoped requests run as `davra_app` under row-level security.
     pub rls: bool,
+}
+
+impl AppState {
+    /// A state for one-off admin commands (no web, no embedder).
+    fn minimal(
+        pool: PgPool,
+        telegram: Option<Arc<telegram::Telegram>>,
+        master_key: Option<Arc<secrets::MasterKey>>,
+    ) -> AppState {
+        AppState {
+            pool,
+            telegram,
+            limiter: Arc::new(accounts::RateLimiter::default()),
+            cookie_secure: true,
+            registration_open: false,
+            web_dir: None,
+            embedder: None,
+            public_url: None,
+            downloads_dir: None,
+            client_ip_header: None,
+            events: live::channel(),
+            master_key,
+            rls: false,
+        }
+    }
 }
 
 #[derive(Parser)]
@@ -99,6 +125,9 @@ enum Cmd {
         /// Directory with prebuilt davra binaries and SHA256SUMS.
         #[arg(long, env = "DAVRA_DOWNLOADS_DIR")]
         downloads_dir: Option<std::path::PathBuf>,
+        /// Local hour (database time zone) after which each project's daily digest is written.
+        #[arg(long, env = "DAVRA_DIGEST_HOUR", default_value_t = 19, value_parser = clap::value_parser!(u32).range(0..24))]
+        digest_hour: u32,
         /// Take the client IP from this header, e.g. cf-connecting-ip behind a Cloudflare
         /// tunnel. Only set it when every request comes through that proxy: anyone who
         /// reaches the hub directly can forge it and dodge the login rate limits.
@@ -116,6 +145,17 @@ enum Cmd {
         to: i64,
         #[arg(long, env = "DAVRA_TELEGRAM_TOKEN", hide_env_values = true)]
         telegram_token: String,
+    },
+    /// Write a project's daily digest now (needs DAVRA_ANTHROPIC_API_KEY).
+    Digest {
+        slug: String,
+        #[arg(long)]
+        org: Option<String>,
+        /// Send the card to this Telegram user only; store and post nothing.
+        #[arg(long)]
+        preview_to: Option<i64>,
+        #[arg(long, env = "DAVRA_TELEGRAM_TOKEN", hide_env_values = true)]
+        telegram_token: Option<String>,
     },
     /// Prove row-level security isolates orgs (exit code 1 if it does not).
     RlsCheck,
@@ -326,6 +366,7 @@ async fn main() -> Result<()> {
             public_url,
             downloads_dir,
             client_ip_header,
+            digest_hour,
         } => {
             let client_ip_header = match client_ip_header
                 .as_deref()
@@ -390,7 +431,7 @@ async fn main() -> Result<()> {
             }
             let events = live::channel();
             tokio::spawn(live::run_listener(pool.clone(), events.clone()));
-            let app = api::router(AppState {
+            let state = AppState {
                 pool,
                 telegram,
                 limiter: Arc::new(accounts::RateLimiter::default()),
@@ -404,7 +445,16 @@ async fn main() -> Result<()> {
                 events,
                 master_key: master_key.clone(),
                 rls,
-            });
+            };
+            match digest::Claude::from_env() {
+                Some(c) => {
+                    tokio::spawn(digest::run_worker(state.clone(), Arc::new(c), digest_hour));
+                }
+                None => {
+                    tracing::info!("daily digest off: set DAVRA_ANTHROPIC_API_KEY to turn it on")
+                }
+            }
+            let app = api::router(state);
             let listener = tokio::net::TcpListener::bind(&bind)
                 .await
                 .with_context(|| format!("could not bind {bind}"))?;
@@ -422,6 +472,30 @@ async fn main() -> Result<()> {
         }
         Cmd::Status => admin::status(&pool).await?,
         Cmd::RlsCheck => admin::rls_check(&pool).await?,
+        Cmd::Digest {
+            slug,
+            org,
+            preview_to,
+            telegram_token,
+        } => {
+            let claude = digest::Claude::from_env()
+                .context("set DAVRA_ANTHROPIC_API_KEY (or ANTHROPIC_API_KEY) first")?;
+            let telegram = match telegram_token
+                .as_deref()
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+            {
+                Some(t) => Some(Arc::new(telegram::Telegram::connect(t).await?)),
+                None => None,
+            };
+            let (org_id, _) = admin::resolve_org(&pool, org.as_deref()).await?;
+            let pid = admin::project_id(&pool, org_id, &slug).await?;
+            let state = AppState::minimal(pool.clone(), telegram, master_key.clone());
+            let list = digest::due(&state, 0, Some(pid)).await?;
+            let p = list.first().context("project not found")?;
+            let outcome = digest::run_one(&state, &claude, p, preview_to).await?;
+            println!("{slug}: {outcome:?}");
+        }
         Cmd::TgPreview { to, telegram_token } => {
             let tg = telegram::Telegram::connect(telegram_token.trim()).await?;
             tgcard::preview(&tg, to).await?

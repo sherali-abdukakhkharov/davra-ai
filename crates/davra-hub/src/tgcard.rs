@@ -484,6 +484,46 @@ pub fn ci_failed(lang: Lang, ev: &GhEvent) -> Option<Card> {
     ))
 }
 
+/// The daily digest card. Every string comes from the model and is escaped.
+pub fn daily(
+    lang: Lang,
+    project: &str,
+    day: &str,
+    s: &crate::digest::Summary,
+    messages: i64,
+    events: i64,
+    people: &People,
+) -> Card {
+    let mut html = format!(
+        "<p>🗓 <b>{}</b> · {} · {}</p><p><i>{}</i></p>",
+        lang.pick("Daily digest", "Kun xulosasi"),
+        esc(project),
+        esc(day),
+        inline(&s.headline, people)
+    );
+    for (icon, title, items) in [
+        ("✅", lang.pick("Done", "Bajarildi"), &s.done),
+        ("🔄", lang.pick("In progress", "Jarayonda"), &s.in_progress),
+        ("⛔", lang.pick("Blockers", "To'siqlar"), &s.blockers),
+        ("➡️", lang.pick("Next", "Keyingi qadamlar"), &s.next),
+    ] {
+        if items.is_empty() {
+            continue;
+        }
+        html.push_str(&format!("<p>{icon} <b>{title}</b></p><ul>"));
+        for i in items {
+            html.push_str(&format!("<li>{}</li>", inline(i, people)));
+        }
+        html.push_str("</ul>");
+    }
+    let footer = match lang {
+        Lang::En => format!("{messages} messages · {events} GitHub events · written by Claude"),
+        Lang::Uz => format!("{messages} ta xabar · {events} ta GitHub hodisasi · Claude yozdi"),
+    };
+    html.push_str(&format!("<footer>{}</footer>", esc(&footer)));
+    Card::new(html, &s.text(lang, project, day), people, false)
+}
+
 /// A one-line notice as a card (used where a project wants plain messages).
 pub fn notice(text: &str, silent: bool) -> Card {
     Card::new(

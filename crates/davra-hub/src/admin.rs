@@ -36,7 +36,7 @@ pub async fn resolve_org(pool: &PgPool, org: Option<&str>) -> Result<(Uuid, Stri
     }
 }
 
-async fn project_id(pool: &PgPool, org_id: Uuid, project: &str) -> Result<Uuid> {
+pub async fn project_id(pool: &PgPool, org_id: Uuid, project: &str) -> Result<Uuid> {
     let s = slug(project)?;
     let id: Option<Uuid> =
         sqlx::query_scalar("select id from projects where org_id = $1 and slug = $2")
