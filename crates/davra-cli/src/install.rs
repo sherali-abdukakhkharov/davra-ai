@@ -10,7 +10,15 @@ use crate::config;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Where install.ps1 / install.sh put the CLI, so every installer replaces
+/// the same copy: `%LOCALAPPDATA%\Davra\bin` on Windows, `~/.davra/bin`
+/// elsewhere (and wherever `DAVRA_HOME` points, for tests).
 pub fn bin_dir() -> Result<PathBuf> {
+    if cfg!(windows) && std::env::var_os("DAVRA_HOME").is_none() {
+        if let Some(local) = dirs::data_local_dir() {
+            return Ok(local.join("Davra").join("bin"));
+        }
+    }
     Ok(config::dir()?.join("bin"))
 }
 

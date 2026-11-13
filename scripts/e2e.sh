@@ -483,6 +483,8 @@ body=$(WP /api/v1/web/projects/dilnoza-lab/crm/agents/dilnoza-ai/tokens '{"name"
 has "$body" "irm $DAVRA_HUB/install.ps1 | iex" "connect commands include the installer"
 has "$(curl -fs "$DAVRA_HUB/desktop/latest.json")" '"version":"9.9.9"' "desktop manifest served"
 has "$(curl -fs "$DAVRA_HUB/desktop/Davra_9.9.9_x64-setup.exe")" "setup" "desktop installer served"
+has "$(curl -fsI "$DAVRA_HUB/desktop/Davra_9.9.9_x64-setup.exe")" "cache-control: no-cache" "downloads are not cached by a CDN"
+has "$(curl -fs "$DAVRA_HUB/install.sh")" '?sha=$want' "the installer asks for the binary by its checksum"
 ok "one-line installers and Davra Desktop served by the hub; connect commands include them"
 
 echo "== rename"

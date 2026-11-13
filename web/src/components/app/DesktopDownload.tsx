@@ -48,7 +48,7 @@ export function DesktopDownload() {
         {files.map((f) => (
           <li key={f.name}>
             <a
-              href={`/desktop/${encodeURIComponent(f.name)}`}
+              href={`/desktop/${encodeURIComponent(f.name)}?sha=${f.sha256}`}
               download
               title={`SHA-256 ${f.sha256}`}
               className={

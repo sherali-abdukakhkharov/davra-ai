@@ -140,11 +140,11 @@ pub fn router(state: AppState) -> Router {
                     HeaderValue::from_static("text/plain; charset=utf-8"),
                 ),
             )
-            .nest_service("/downloads", ServeDir::new(dir)),
+            .nest_service("/downloads", no_cache(ServeDir::new(dir))),
         None => api,
     };
     let api = match desktop_dir {
-        Some(dir) => api.nest_service("/desktop", ServeDir::new(dir)),
+        Some(dir) => api.nest_service("/desktop", no_cache(ServeDir::new(dir))),
         None => api,
     };
     let app = match web_dir {
@@ -173,6 +173,16 @@ pub fn router(state: AppState) -> Router {
     ))
     .layer(TraceLayer::new_for_http())
     .with_state(state)
+}
+
+/// Downloads change with every build under the same name: a CDN in front of the
+/// hub (Cloudflare caches .exe and friends by extension) must ask every time.
+fn no_cache<S>(svc: S) -> tower_http::set_header::SetResponseHeader<S, HeaderValue> {
+    tower_http::set_header::SetResponseHeader::overriding(
+        svc,
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-cache"),
+    )
 }
 
 async fn api_not_found() -> AppError {

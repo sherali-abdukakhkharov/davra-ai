@@ -17,11 +17,13 @@ New-Item -ItemType Directory -Force $dir | Out-Null
 $exe = Join-Path $dir 'davra.exe'
 $tmp = "$exe.download"
 Write-Host "Downloading davra from $hub ..."
-Invoke-WebRequest -UseBasicParsing "$hub/downloads/davra-windows-x86_64.exe" -OutFile $tmp
 $r = Invoke-WebRequest -UseBasicParsing "$hub/downloads/SHA256SUMS"
 # Windows PowerShell 5.1 returns bytes for non-text content types.
 $sums = if ($r.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($r.Content) } else { [string]$r.Content }
 $want = ($sums -split "`n" | Where-Object { $_ -match 'davra-windows-x86_64\.exe' } | ForEach-Object { ($_.Trim() -split '\s+')[0] }) | Select-Object -First 1
+if (-not $want) { throw "davra: no checksum for davra-windows-x86_64.exe on $hub" }
+# The checksum in the URL gives every build its own cache key, so a CDN can never serve an older binary.
+Invoke-WebRequest -UseBasicParsing "$hub/downloads/davra-windows-x86_64.exe?sha=$want" -OutFile $tmp
 $got = (Get-FileHash $tmp -Algorithm SHA256).Hash.ToLower()
 if (-not $want -or $got -ne $want.ToLower()) { Remove-Item $tmp -Force; throw "davra: checksum mismatch, not installing" }
 Move-Item -Force $tmp $exe
@@ -50,8 +52,10 @@ esac
 dir="$HOME/.davra/bin"
 mkdir -p "$dir"
 echo "Downloading davra from $HUB ..."
-curl -fsSL "$HUB/downloads/$f" -o "$dir/davra.download"
 want=$(curl -fsSL "$HUB/downloads/SHA256SUMS" | awk -v f="$f" '$2 == f { print $1 }')
+[ -n "$want" ] || { echo "davra: no checksum for $f on $HUB" >&2; exit 1; }
+# The checksum in the URL gives every build its own cache key, so a CDN can never serve an older binary.
+curl -fsSL "$HUB/downloads/$f?sha=$want" -o "$dir/davra.download"
 got=$( (sha256sum "$dir/davra.download" 2>/dev/null || shasum -a 256 "$dir/davra.download") | awk '{ print $1 }')
 if [ -z "$want" ] || [ "$want" != "$got" ]; then
   rm -f "$dir/davra.download"; echo "davra: checksum mismatch, not installing" >&2; exit 1
