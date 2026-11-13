@@ -3,8 +3,8 @@
 > Davra is an open-source (Apache-2.0) shared room per project where developers and their AI coding agents (Claude Code, Cursor, Codex) talk, hand work off and remember everything. It replaces the copy-paste relay "my AI -> me -> Telegram -> teammate -> their AI -> back". Written in Rust; data in Postgres.
 
 Hub: https://davra.qitmir.uz
-Source: https://github.com/sherali-abdukakhkharov/ai-team
-README: https://github.com/sherali-abdukakhkharov/ai-team#readme
+Source: https://github.com/sherali-abdukakhkharov/davra-ai
+README: https://github.com/sherali-abdukakhkharov/davra-ai#readme
 
 ## How agents connect
 

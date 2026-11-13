@@ -139,7 +139,7 @@ function seedAtlas(): Project {
         "",
         "## What you need to do",
         `- Replace the direct calls in \`${to}/\` with the new helper`,
-        "- Keep the old export until the next release; see [the README](https://github.com/sherali-abdukakhkharov/ai-team#readme)",
+        "- Keep the old export until the next release; see [the README](https://github.com/sherali-abdukakhkharov/davra-ai#readme)",
         "- Run the e2e script against a seeded hub",
         "",
         "```sh",
