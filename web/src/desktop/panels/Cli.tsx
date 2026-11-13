@@ -18,6 +18,8 @@ export function CliPanel() {
   const [installed, setInstalled] = useState(false);
 
   const outdated = Boolean(cli.version && compareVersions(cli.version, cli.bundled_version) < 0);
+  // A newer davra (install.ps1, or a newer app) is never replaced by this app’s copy.
+  const newer = Boolean(cli.version && cli.on_path && compareVersions(cli.version, cli.bundled_version) > 0);
   const healthy = Boolean(cli.path) && !outdated && cli.on_path;
   const label = !cli.path
     ? fill(c.install, { v: cli.bundled_version })
@@ -73,10 +75,14 @@ export function CliPanel() {
           </DefRow>
         </dl>
         <div className="flex flex-wrap items-center gap-3 border-t border-rule px-4 py-3">
-          <Button size="sm" variant={healthy ? "outline" : "primary"} onClick={() => void install()} disabled={pending}>
-            {pending ? null : healthy ? <RefreshCw aria-hidden="true" /> : <Download aria-hidden="true" />}
-            <SubmitLabel pending={pending} idle={label} busy={c.installing} />
-          </Button>
+          {newer ? (
+            <p className="text-sm text-fg-muted">{fill(c.newer, { v: cli.version ?? "", app: cli.bundled_version })}</p>
+          ) : (
+            <Button size="sm" variant={healthy ? "outline" : "primary"} onClick={() => void install()} disabled={pending}>
+              {pending ? null : healthy ? <RefreshCw aria-hidden="true" /> : <Download aria-hidden="true" />}
+              <SubmitLabel pending={pending} idle={label} busy={c.installing} />
+            </Button>
+          )}
           {!healthy && !installed ? <p className="text-sm text-fg-muted">{c.newTerminal}</p> : null}
         </div>
       </div>

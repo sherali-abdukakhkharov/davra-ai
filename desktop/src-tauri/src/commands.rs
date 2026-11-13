@@ -129,6 +129,18 @@ fn cli_installed() -> bool {
 }
 
 fn install_cli_now() -> anyhow::Result<()> {
+    // Never put this app's copy over a newer davra (from install.ps1 or a newer app).
+    if let Some(have) = install::cli_path()
+        .ok()
+        .and_then(|p| install::version_of(&p))
+    {
+        if install::newer(&have, install::VERSION) {
+            anyhow::bail!(
+                "davra {have} is already installed, newer than this app's {}; update Davra Desktop instead",
+                install::VERSION
+            );
+        }
+    }
     install::install_from(&bundled_cli()?)?;
     install::add_to_path(&install::bin_dir()?)?;
     Ok(())
