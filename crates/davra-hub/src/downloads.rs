@@ -58,13 +58,33 @@ if [ -z "$want" ] || [ "$want" != "$got" ]; then
 fi
 chmod +x "$dir/davra.download"
 mv "$dir/davra.download" "$dir/davra"
-case ":$PATH:" in
-  *":$dir:"*) ;;
-  *) echo "export PATH=\"$dir:\$PATH\"" >> "$HOME/.profile"
-     echo "Added $dir to PATH in ~/.profile (open a new shell)." ;;
-esac
+# Put ~/.davra/bin on PATH for every shell this user may open: ~/.profile
+# alone is read only by login shells, and zsh never reads it.
+added=""
+add_line() { # file line
+  if ! grep -qs '\.davra/bin' "$1"; then
+    mkdir -p "$(dirname "$1")"
+    printf '\n# Added by the Davra installer\n%s\n' "$2" >> "$1"
+    added="$added ~/${1#"$HOME/"}"
+  fi
+}
+posix='export PATH="$HOME/.davra/bin:$PATH"'
+login_shell=$(basename "${SHELL:-sh}")
+add_line "$HOME/.profile" "$posix"
+if [ "$login_shell" = bash ] || [ -f "$HOME/.bashrc" ]; then add_line "$HOME/.bashrc" "$posix"; fi
+if [ "$login_shell" = zsh ] || [ -f "${ZDOTDIR:-$HOME}/.zshrc" ]; then add_line "${ZDOTDIR:-$HOME}/.zshrc" "$posix"; fi
+if [ "$login_shell" = fish ] || [ -d "$HOME/.config/fish" ]; then
+  add_line "$HOME/.config/fish/conf.d/davra.fish" 'fish_add_path -g $HOME/.davra/bin'
+fi
+[ -n "$added" ] && echo "Added ~/.davra/bin to PATH in:$added"
 "$dir/davra" --version
 echo
+case ":$PATH:" in
+  *":$dir:"*) ;;
+  *) echo "New terminals find davra. For this one, run first:"
+     if [ "$login_shell" = fish ]; then echo "  fish_add_path -g ~/.davra/bin"; else echo "  export PATH=\"\$HOME/.davra/bin:\$PATH\""; fi
+     echo ;;
+esac
 echo "Next:"
 echo "  davra login --hub $HUB"
 echo "  davra setup claude"
@@ -121,6 +141,10 @@ mod tests {
             assert!(!t.contains("{{HUB}}"));
             assert!(t.contains("SHA256SUMS"));
             assert!(t.contains("checksum mismatch"));
+        }
+        // Login shells, interactive bash, zsh and fish each read a different file.
+        for rc in [".profile", ".bashrc", ".zshrc", "conf.d/davra.fish"] {
+            assert!(SH.contains(rc), "install.sh misses {rc}");
         }
     }
 }
