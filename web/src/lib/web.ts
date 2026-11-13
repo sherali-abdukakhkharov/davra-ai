@@ -109,6 +109,45 @@ export const grantable = (role: Role): Role[] =>
 
 export const isAdmin = (role: Role) => role === "owner" || role === "maintainer";
 
+/** One bucket of Claude Code telemetry counts, as the hub aggregates them. */
+export type Usage = {
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  sessions: number;
+  lines_added: number;
+  lines_removed: number;
+  commits: number;
+  pull_requests: number;
+  edits_accepted: number;
+  edits_rejected: number;
+  active_secs: number;
+};
+
+export type UsageModel = Pick<Usage, "cost_usd" | "input_tokens" | "output_tokens" | "cache_read_tokens" | "cache_write_tokens"> & { model: string };
+export type UsageDay = Usage & { day: string };
+export type UsageMember = Usage & { handle: string; owner: string | null; last_day: string };
+
+export type UsageReport = {
+  days: number;
+  /** First day in range, YYYY-MM-DD in `tz`. */
+  since: string;
+  /** First day this project ever reported usage (any range); null if never. */
+  first_day: string | null;
+  tz: string;
+  totals: Usage;
+  /** Only days with data, ascending. */
+  daily: UsageDay[];
+  /** Sorted by cost, descending. */
+  members: UsageMember[];
+  /** Sorted by cost, descending. */
+  models: UsageModel[];
+};
+
+export const USAGE_DAYS = [7, 14, 30, 90] as const;
+
 export type NewToken = { id: string | number; token: string; hub: string; commands: string[] };
 
 const enc = encodeURIComponent;
@@ -133,6 +172,8 @@ export const web = {
   project: (org: string, slug: string, signal?: AbortSignal) => get<ProjectDetail>(base(org, slug), signal),
   search: (org: string, slug: string, q: string, k = 20, signal?: AbortSignal) =>
     get<SearchResult>(`${base(org, slug)}/search?q=${enc(q)}&k=${k}`, signal),
+  usage: (org: string, slug: string, days: number, signal?: AbortSignal) =>
+    get<UsageReport>(`${base(org, slug)}/usage?days=${days}`, signal),
   older: (org: string, slug: string, before: number) =>
     get<{ messages: Message[] }>(`${base(org, slug)}/messages?before=${before}`),
   post: (org: string, slug: string, text: string) =>

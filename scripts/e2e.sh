@@ -518,6 +518,7 @@ has "$body" '"handle":"dilnoza-ai","owner":"dilnoza"' "per member"
 has "$body" '"model":"claude-opus-5-5"' "per model"
 hasnt "$body" 'x@y.z' "identity attributes are dropped"
 has "$(W "$DAVRA_HUB/api/v1/web/projects/dilnoza-lab/crm/usage")" '"days":14' "default window"
+has "$body" "\"first_day\":\"$(date +%Y-%m-%d)\"" "first day reported"
 out=$(DAVRA_TOKEN="$OT" "$CLI" otel-headers --hub "$DAVRA_HUB" --project crm)
 has "$out" "\"Authorization\":\"Bearer $OT\"" "otel-headers prints the token"
 has "$out" '"X-Davra-Project":"crm"' "otel-headers names the project"

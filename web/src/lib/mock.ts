@@ -1,7 +1,20 @@
 // Local stand-in for the hub's auth + web API. Loaded only in dev with ?mock=1 (or ?mock=fresh),
 // and by the design preview build. Every name and message here is synthetic.
 
-import { grantable, type Handoff, type Invite, type Member, type Message, type ProjectDetail, type ProjectItem, type Token, type Trust } from "./web";
+import {
+  grantable,
+  type Handoff,
+  type Invite,
+  type Member,
+  type Message,
+  type ProjectDetail,
+  type ProjectItem,
+  type Token,
+  type Trust,
+  type Usage,
+  type UsageModel,
+  type UsageReport,
+} from "./web";
 
 type State = {
   signedIn: boolean;
@@ -18,7 +31,11 @@ type Project = {
   members: Member[];
   messages: Message[];
   handoffs: Handoff[];
+  /** Synthetic Claude Code telemetry, one row per agent per day. Absent means none was ever sent. */
+  usage?: UsageRow[];
 };
+
+type UsageRow = { day: string; handle: string; owner: string | null; u: Usage; models: UsageModel[] };
 
 const MINUTE = 60_000;
 const ago = (min: number) => new Date(Date.now() - min * MINUTE).toISOString();
@@ -146,6 +163,11 @@ function seedMosla(): Project {
   return {
     item: { org: "shaxsiy", slug: "mosla", name: "Mosla", role: "owner", handle: "ali_9737", members: 3, agents: 2, messages: 1284, open_handoffs: 153, last_activity: ago(4), telegram: true },
     members, messages, handoffs,
+    usage: seedUsage([
+      ["ali-ai", "ali_9737", 1.0],
+      ["gulom-ai", "gulom", 0.7],
+      ["review-bot", null, 0.2],
+    ]),
   };
 }
 
@@ -197,6 +219,114 @@ function detail(p: Project): ProjectDetail {
     members: p.members,
     messages: p.messages.slice(-30),
     handoffs: p.handoffs.filter((h) => h.status === "open").sort((a, b) => b.id - a.id),
+  };
+}
+
+// --- usage -----------------------------------------------------------------
+
+const TZ_OFFSET = 5 * 60 * MINUTE; // Asia/Tashkent, no DST
+const DAY = 24 * 60 * MINUTE;
+const hubDay = (ms: number) => new Date(ms + TZ_OFFSET).toISOString().slice(0, 10);
+
+const zero = (): Usage => ({
+  cost_usd: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, sessions: 0,
+  lines_added: 0, lines_removed: 0, commits: 0, pull_requests: 0, edits_accepted: 0, edits_rejected: 0, active_secs: 0,
+});
+function add<T extends Partial<Usage>>(into: T, from: Partial<Usage>): T {
+  const t = into as Record<string, number>;
+  for (const [k, v] of Object.entries(from)) if (typeof v === "number" && k in t) t[k] = (t[k] ?? 0) + v;
+  return into;
+}
+
+function seedUsage(agents: [string, string | null, number][]): UsageRow[] {
+  // Deterministic PRNG, so the mock looks the same on every reload.
+  let seed = 0x9e3779b9;
+  const rnd = () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const int = (lo: number, hi: number) => Math.round(lo + rnd() * (hi - lo));
+  const rows: UsageRow[] = [];
+  const now = Date.now();
+  for (let back = 89; back >= 0; back--) {
+    const day = hubDay(now - back * DAY);
+    const weekend = [0, 6].includes(new Date(`${day}T00:00:00Z`).getUTCDay());
+    for (const [handle, owner, weight] of agents) {
+      if (rnd() > (weekend ? 0.15 : 0.8) * Math.min(1, weight + 0.35)) continue;
+      const w = weight * (0.4 + rnd() * 1.2);
+      const input = int(20_000, 380_000) * w;
+      const output = int(8_000, 110_000) * w;
+      const cacheRead = int(600_000, 9_000_000) * w;
+      const cacheWrite = int(40_000, 650_000) * w;
+      const split: [string, number][] = [["claude-opus-5-5", 0.72], ["claude-sonnet-5", 0.23], ["claude-haiku-4-5", 0.05]];
+      const models = split.map(([model, share]) => {
+        const m: UsageModel = {
+          model,
+          input_tokens: Math.round(input * share),
+          output_tokens: Math.round(output * share),
+          cache_read_tokens: Math.round(cacheRead * share),
+          cache_write_tokens: Math.round(cacheWrite * share),
+          cost_usd: 0,
+        };
+        const rate = model.includes("opus") ? 1 : model.includes("sonnet") ? 0.6 : 0.2;
+        m.cost_usd = Math.round(rate * (m.input_tokens * 5 + m.output_tokens * 25 + m.cache_read_tokens * 0.5 + m.cache_write_tokens * 6.25) / 10_000) / 100;
+        return m;
+      });
+      const edits = int(4, 70) * w;
+      const accepted = Math.round(edits * (0.82 + rnd() * 0.17));
+      rows.push({
+        day, handle, owner, models,
+        u: {
+          cost_usd: models.reduce((a, m) => a + m.cost_usd, 0),
+          input_tokens: Math.round(input),
+          output_tokens: Math.round(output),
+          cache_read_tokens: Math.round(cacheRead),
+          cache_write_tokens: Math.round(cacheWrite),
+          sessions: Math.max(1, int(1, 6)),
+          lines_added: Math.round(int(40, 1600) * w),
+          lines_removed: Math.round(int(10, 520) * w),
+          commits: int(0, 6),
+          pull_requests: rnd() > 0.7 ? int(1, 2) : 0,
+          edits_accepted: accepted,
+          edits_rejected: Math.round(edits) - accepted,
+          active_secs: Math.round(int(600, 9_500) * w),
+        },
+      });
+    }
+  }
+  return rows;
+}
+
+function usageReport(rows: UsageRow[], days: number): UsageReport {
+  const since = hubDay(Date.now() - (days - 1) * DAY);
+  const inRange = rows.filter((r) => r.day >= since);
+  const totals = zero();
+  const daily = new Map<string, Usage & { day: string }>();
+  const members = new Map<string, Usage & { handle: string; owner: string | null; last_day: string }>();
+  const models = new Map<string, UsageModel>();
+  for (const r of inRange) {
+    add(totals, r.u);
+    add(daily.get(r.day) ?? daily.set(r.day, { day: r.day, ...zero() }).get(r.day)!, r.u);
+    const m = members.get(r.handle) ?? members.set(r.handle, { handle: r.handle, owner: r.owner, last_day: r.day, ...zero() }).get(r.handle)!;
+    add(m, r.u);
+    if (r.day > m.last_day) m.last_day = r.day;
+    for (const x of r.models) {
+      const { model, ...counts } = x;
+      add(models.get(model) ?? models.set(model, { model, cost_usd: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0 }).get(model)!, counts);
+    }
+  }
+  const byCost = <T extends { cost_usd: number }>(a: T, b: T) => b.cost_usd - a.cost_usd;
+  return {
+    days,
+    since,
+    first_day: rows.map((r) => r.day).sort()[0] ?? null,
+    tz: "Asia/Tashkent",
+    totals,
+    daily: [...daily.values()].sort((a, b) => a.day.localeCompare(b.day)),
+    members: [...members.values()].sort(byCost),
+    models: [...models.values()].sort(byCost),
   };
 }
 
@@ -279,6 +409,11 @@ async function handle(method: string, path: string, body: Record<string, unknown
     if (!pr) return fail(404, "not_found", "No such project, or you are not in it.");
     const rest = m[3] ?? "";
     if (!rest && method === "GET") return json(200, detail(pr));
+    if (rest === "/usage" && method === "GET") {
+      const days = Number(url.searchParams.get("days") ?? 14);
+      if (!Number.isInteger(days) || days < 1 || days > 90) return fail(400, "bad_request", "days must be between 1 and 90", "days");
+      return json(200, usageReport(pr.usage ?? [], days));
+    }
     if (rest === "/search") {
       const q = (url.searchParams.get("q") ?? "").trim().toLowerCase();
       const hits = q

@@ -5,6 +5,7 @@ import { HandoffsTab } from "@/components/app/HandoffsTab";
 import { MembersTab } from "@/components/app/MembersTab";
 import { RoomTab } from "@/components/app/RoomTab";
 import { SearchTab } from "@/components/app/SearchTab";
+import { UsageTab } from "@/components/app/UsageTab";
 import { ErrorPanel, RoleBadge, Skeleton } from "@/components/app/States";
 import { useResource } from "@/components/app/useResource";
 import { useFormat } from "@/lib/format";
@@ -13,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { web, type Member, type ProjectDetail } from "@/lib/web";
 import { shell } from "./Overview";
 
-const TABS = ["room", "search", "handoffs", "members", "agents"] as const;
+const TABS = ["room", "search", "handoffs", "members", "agents", "usage"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function Project() {
@@ -88,6 +89,8 @@ export default function Project() {
           <RoomTab key={`${org}/${slug}`} project={d.project} initial={d.messages} members={d.members} onPosted={() => void res.reload({ quiet: true })} />
         ) : tab === "search" ? (
           <SearchTab org={org} slug={slug} />
+        ) : tab === "usage" ? (
+          <UsageTab org={org} slug={slug} />
         ) : tab === "handoffs" ? (
           <HandoffsTab handoffs={d.handoffs} />
         ) : tab === "members" ? (

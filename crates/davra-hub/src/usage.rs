@@ -309,6 +309,8 @@ pub struct ModelUsage {
 pub struct UsageReport {
     days: i64,
     since: NaiveDate,
+    /// First day the project ever reported usage, in any range.
+    first_day: Option<NaiveDate>,
     tz: String,
     totals: Usage,
     daily: Vec<DayUsage>,
@@ -331,11 +333,14 @@ pub async fn report(
     let days = q.days.unwrap_or(14).clamp(1, 90);
     let (caller, p) = crate::webapp::open_project(&state, user.id, &org, &slug).await?;
     let mut tx = crate::api::scoped(&state, &caller).await?;
-    let (since, tz): (NaiveDate, String) =
-        sqlx::query_as("select (current_date - ($1::int - 1))::date, current_setting('TimeZone')")
-            .bind(days as i32)
-            .fetch_one(&mut *tx)
-            .await?;
+    let (since, tz, first_day): (NaiveDate, String, Option<NaiveDate>) = sqlx::query_as(
+        "select (current_date - ($1::int - 1))::date, current_setting('TimeZone'), \
+         (select min(day) from agent_usage where project_id = $2)",
+    )
+    .bind(days as i32)
+    .bind(p.id)
+    .fetch_one(&mut *tx)
+    .await?;
     let scope = "from agent_usage u where u.project_id = $1 and u.day >= $2";
     let totals: Usage = sqlx::query_as(&format!("select {SUMS} {scope}"))
         .bind(p.id)
@@ -376,6 +381,7 @@ pub async fn report(
     Ok(Json(UsageReport {
         days,
         since,
+        first_day,
         tz,
         totals,
         daily,
