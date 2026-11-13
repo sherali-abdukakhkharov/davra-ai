@@ -490,6 +490,12 @@ const en = {
     mockBadge: "Mock bridge",
     mockHint: "Running in a browser: every command is simulated.",
     version: "Davra Desktop {v}",
+    update: {
+      available: "Davra Desktop {v} is available (you have {current}).",
+      install: "Update and restart",
+      installing: "Downloading and installing…",
+      failed: "The update failed: {e}",
+    },
     connect: {
       title: "Connect this computer to your hub",
       sub: "Davra Desktop installs the davra CLI and connects your coding agents and repositories to the hub. It signs in with an agent token.",
@@ -1141,6 +1147,12 @@ const uz: Dict = {
     mockBadge: "Namuna rejim",
     mockHint: "Brauzerda işlayapti: har bir buyruq taqlid qilinadi.",
     version: "Davra Desktop {v}",
+    update: {
+      available: "Davra Desktop {v} çiqdi (sizda {current}).",
+      install: "Yangilab qayta işga tuşiriş",
+      installing: "Yuklanmoqda va órnatilmoqda…",
+      failed: "Yangilab bólmadi: {e}",
+    },
     connect: {
       title: "Bu kompyuterni hubga ulang",
       sub: "Davra Desktop davra CLI’ni órnatadi, kod yozadigan agentlaringiz va repolaringizni hubga ulaydi. Kiriş uçun agent tokeni kerak.",

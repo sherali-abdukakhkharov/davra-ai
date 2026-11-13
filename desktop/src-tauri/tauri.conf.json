@@ -37,6 +37,13 @@
       "freezePrototype": true
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRCQTMzNjIyMkM1MDA2QkYKUldTL0JsQXNJamFqUzBKMTBSQmYrMzNTdktudkFlRHFCRHdSZ2tIeDZYVEhud1MvcFAzKzNaZ04K",
+      "endpoints": [],
+      "windows": { "installMode": "passive" }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis", "deb", "appimage"],

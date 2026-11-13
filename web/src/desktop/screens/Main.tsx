@@ -1,3 +1,4 @@
+import { UpdateBanner } from "../components/UpdateBanner";
 import { CircleAlert, FolderGit2, MonitorSmartphone, SquareTerminal, UserRound, type LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { LogoMark } from "@/components/site/Logo";
@@ -141,6 +142,7 @@ export function MainScreen() {
             <NavList items={nav} current={section} onPick={setSection} />
           </header>
 
+          <UpdateBanner />
           {status.me_error ? (
             <div role="alert" className="flex items-start gap-2.5 border-b border-danger/40 bg-danger-soft px-5 py-2.5 text-sm md:px-8">
               <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden="true" />

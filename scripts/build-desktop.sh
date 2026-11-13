@@ -34,11 +34,12 @@ if [[ "${1:-}" == "--inside" ]]; then
   shift
   ui_override="${UI_DIST_OVERRIDE:-}"
   # The UI is built on the host, so the container skips beforeBuildCommand.
-  if [[ -n "$ui_override" ]]; then
-    config="{\"build\":{\"beforeBuildCommand\":\"\",\"frontendDist\":\"$ui_override\"}}"
-  else
-    config='{"build":{"beforeBuildCommand":""}}'
-  fi
+  build_cfg='"beforeBuildCommand":""'
+  [[ -n "$ui_override" ]] && build_cfg="$build_cfg,\"frontendDist\":\"$ui_override\""
+  # With the updater key mounted, the installers also get .sig files for auto-update.
+  sign=false
+  [[ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]] && sign=true
+  config="{\"build\":{$build_cfg},\"bundle\":{\"createUpdaterArtifacts\":$sign}}"
   bins=/src/desktop/src-tauri/binaries
   dist=/src/desktop/dist
   mkdir -p "$bins"
@@ -56,6 +57,7 @@ if [[ "${1:-}" == "--inside" ]]; then
           cargo tauri build --ci --bundles deb,appimage --config "$config")
         rm -rf "$dist/linux" && mkdir -p "$dist/linux"
         cp /target/desktop/release/bundle/deb/*.deb /target/desktop/release/bundle/appimage/*.AppImage "$dist/linux/"
+        cp /target/desktop/release/bundle/appimage/*.sig "$dist/linux/" 2>/dev/null || true
         ;;
       windows)
         echo "==> davra CLI ($WINDOWS_TRIPLE, cargo-xwin)"
@@ -69,6 +71,7 @@ if [[ "${1:-}" == "--inside" ]]; then
         out="/target/desktop/$WINDOWS_TRIPLE/release"
         rm -rf "$dist/windows" && mkdir -p "$dist/windows/app"
         cp "$out"/bundle/nsis/*.exe "$dist/windows/"
+        cp "$out"/bundle/nsis/*.sig "$dist/windows/" 2>/dev/null || true
         cp "$out/davra-desktop.exe" "$dist/windows/app/"
         cp "$bins/davra-$WINDOWS_TRIPLE.exe" "$dist/windows/app/davra.exe"
         ;;
@@ -125,11 +128,25 @@ HTML
   ui_override="../dist/.placeholder-ui"
 fi
 
+# The updater key signs installers for auto-update (`cargo tauri signer generate`); its
+# public half is in tauri.conf.json. Keep the private key out of the repo and backed up:
+# without it, installed apps can't be updated.
+key="${DAVRA_UPDATER_KEY:-$HOME/.davra-release/updater.key}"
+sign_args=()
+if [[ -f "$key" ]]; then
+  key_dir=$(cd "$(dirname "$key")" && { pwd -W 2>/dev/null || pwd; })
+  sign_args=(-v "$key_dir:/keys:ro" -e "TAURI_SIGNING_PRIVATE_KEY=/keys/$(basename "$key")"
+             -e "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${DAVRA_UPDATER_KEY_PASSWORD:-}")
+else
+  echo "==> no updater key at $key: installers are built without auto-update signatures"
+fi
+
 docker run --rm \
   -v "$repo_mount:/src" \
   -v davra-cargo:/usr/local/cargo/registry \
   -v davra-tauri-target:/target \
   -v davra-tauri-cache:/root/.cache \
+  "${sign_args[@]}" \
   -e UI_DIST_OVERRIDE="$ui_override" \
   -e CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}" \
   -w /src \
@@ -150,11 +167,15 @@ for spec in "windows:nsis:desktop/dist/windows/Davra_${version}_x64-setup.exe" \
   name=$(basename "$file")
   size=$(wc -c <"$file" | tr -d ' ')
   sum=$(sha256sum "$file" | cut -d' ' -f1)
-  entries+=("{\"os\":\"$os\",\"kind\":\"$kind\",\"name\":\"$name\",\"size\":$size,\"sha256\":\"$sum\"}")
+  # The updater's signature (base64 minisign) for the installers that can update in place.
+  sig=""
+  [[ -f "$file.sig" ]] && sig=",\"signature\":\"$(tr -d '\r\n' <"$file.sig")\""
+  entries+=("{\"os\":\"$os\",\"kind\":\"$kind\",\"name\":\"$name\",\"size\":$size,\"sha256\":\"$sum\"$sig}")
 done
 if [[ ${#entries[@]} -gt 0 ]]; then
   (cd "$pub" && sha256sum -- *.exe *.deb *.AppImage 2>/dev/null >SHA256SUMS || true)
-  printf '{"version":"%s","files":[%s]}\n' "$version" "$(IFS=,; echo "${entries[*]}")" >"$pub/latest.json"
+  printf '{"version":"%s","pub_date":"%s","files":[%s]}\n' "$version" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "$(IFS=,; echo "${entries[*]}")" >"$pub/latest.json"
   echo "==> publish: $pub ($(cat "$pub/latest.json" | head -c 200)...)"
 fi
 

@@ -3,8 +3,8 @@
 //! Binaries come from `DAVRA_DOWNLOADS_DIR` with a `SHA256SUMS` file; the
 //! scripts verify the checksum before installing.
 
-use axum::extract::State;
-use axum::http::{header, HeaderMap, HeaderValue};
+use axum::extract::{Query, State};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 
 use crate::AppState;
@@ -133,10 +133,97 @@ pub async fn install_sh(State(state): State<AppState>, headers: HeaderMap) -> Re
     script(SH, &hub_url(&state, &headers))
 }
 
+#[derive(serde::Deserialize)]
+pub struct UpdateQuery {
+    target: String,
+    arch: String,
+    current: String,
+}
+
+/// "0.2.10" > "0.2.9"; a pre-release suffix ("-beta.1") is ignored.
+fn newer(candidate: &str, current: &str) -> bool {
+    let parts = |v: &str| -> Vec<u64> {
+        v.split('-')
+            .next()
+            .unwrap_or("")
+            .split('.')
+            .map(|p| p.parse().unwrap_or(0))
+            .collect()
+    };
+    parts(candidate) > parts(current)
+}
+
+/// What Davra Desktop's updater asks the hub it is connected to (Tauri's dynamic
+/// update format): 204 when there is nothing newer for that platform, else the
+/// signed installer to fetch. The signature is checked by the app against the
+/// public key it was built with, so the hub can only offer, never forge.
+pub async fn desktop_update(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<UpdateQuery>,
+) -> Response {
+    let none = || StatusCode::NO_CONTENT.into_response();
+    let Some(dir) = &state.desktop_dir else {
+        return none();
+    };
+    let Some(latest) = tokio::fs::read_to_string(dir.join("latest.json"))
+        .await
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+    else {
+        return none();
+    };
+    let Some(version) = latest["version"].as_str() else {
+        return none();
+    };
+    if !newer(version, &q.current) {
+        return none();
+    }
+    // In-place updates: the NSIS installer on Windows, the AppImage on Linux
+    // (a .deb is updated by installing the new .deb).
+    let kind = match (q.target.as_str(), q.arch.as_str()) {
+        ("windows", "x86_64") => "nsis",
+        ("linux", "x86_64") => "appimage",
+        _ => return none(),
+    };
+    let Some(file) = latest["files"].as_array().and_then(|fs| {
+        fs.iter()
+            .find(|f| f["kind"] == kind && f["signature"].is_string())
+    }) else {
+        return none();
+    };
+    let hub = hub_url(&state, &headers);
+    let mut body = serde_json::json!({
+        "version": version,
+        "notes": format!("Davra Desktop {version}"),
+        "url": format!(
+            "{hub}/desktop/{}?sha={}",
+            file["name"].as_str().unwrap_or_default(),
+            file["sha256"].as_str().unwrap_or_default()
+        ),
+        "signature": file["signature"],
+    });
+    if let Some(d) = latest["pub_date"].as_str() {
+        body["pub_date"] = d.into();
+    }
+    let mut r = axum::Json(body).into_response();
+    r.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    r
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn update_versions_compare_numerically() {
+        assert!(newer("0.2.10", "0.2.9"));
+        assert!(newer("0.3.0", "0.2.99"));
+        assert!(newer("1.0.0", "0.9.0-beta.1"));
+        assert!(!newer("0.2.1", "0.2.1"));
+        assert!(!newer("0.2.0", "0.2.1"));
+    }
     #[test]
     fn scripts_have_the_hub_and_verify_checksums() {
         for s in [PS1, SH] {

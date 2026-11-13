@@ -407,3 +407,64 @@ pub async fn forget_repo(path: String) -> R<Status> {
     .await?;
     build_status().await
 }
+
+// ---- Updates -----------------------------------------------------------------
+
+/// A newer Davra Desktop the hub offers.
+#[derive(Serialize)]
+pub struct UpdateInfo {
+    version: String,
+    current: String,
+    notes: Option<String>,
+}
+
+/// The connected hub decides which version this machine gets: every hub
+/// serves its own builds, so there is no update server baked into the app.
+/// Updates are verified against the public key in tauri.conf.json.
+fn updater(app: &tauri::AppHandle) -> anyhow::Result<Option<tauri_plugin_updater::Updater>> {
+    use tauri_plugin_updater::UpdaterExt;
+    let Some(hub) = Config::load()?.hub else {
+        return Ok(None);
+    };
+    let url = format!(
+        "{}/api/v1/desktop/update?target={{{{target}}}}&arch={{{{arch}}}}&current={{{{current_version}}}}",
+        hub.trim_end_matches('/')
+    );
+    let u = app
+        .updater_builder()
+        .endpoints(vec![tauri::Url::parse(&url)?])?
+        .timeout(Duration::from_secs(30))
+        .build()?;
+    Ok(Some(u))
+}
+
+#[tauri::command]
+pub async fn check_update(app: tauri::AppHandle) -> R<Option<UpdateInfo>> {
+    let Some(u) = updater(&app).map_err(err)? else {
+        return Ok(None);
+    };
+    let found = u.check().await.map_err(|e| e.to_string())?;
+    Ok(found.map(|f| UpdateInfo {
+        version: f.version.clone(),
+        current: f.current_version.clone(),
+        notes: f.body.clone(),
+    }))
+}
+
+/// Downloads, verifies and installs the update, then restarts the app.
+#[tauri::command]
+pub async fn install_update(app: tauri::AppHandle) -> R<()> {
+    let u = updater(&app)
+        .map_err(err)?
+        .ok_or_else(|| "connect to a hub first".to_string())?;
+    let found = u
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "already up to date".to_string())?;
+    found
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    app.restart();
+}

@@ -32,6 +32,10 @@ pub fn router(state: AppState) -> Router {
         .route("/install.ps1", get(crate::downloads::install_ps1))
         .route("/install.sh", get(crate::downloads::install_sh))
         .route("/.well-known/davra.json", get(well_known))
+        .route(
+            "/api/v1/desktop/update",
+            get(crate::downloads::desktop_update),
+        )
         .route("/api/v1/me", get(me))
         .route("/api/v1/projects/{slug}/brief", get(brief))
         .route("/api/v1/projects/{slug}/inbox", get(inbox))

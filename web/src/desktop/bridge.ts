@@ -59,6 +59,9 @@ export type Applied = { backups: string[]; status: Status };
 
 export type RepoArgs = { path: string; project: string; usage: boolean };
 
+/** A newer Davra Desktop offered by the connected hub (signed; verified before install). */
+export type UpdateInfo = { version: string; current: string; notes: string | null };
+
 /** Every command the Rust side implements. Errors reject with a string message. */
 export type Commands = {
   status: { args: undefined; out: Status };
@@ -72,6 +75,8 @@ export type Commands = {
   plan_repo: { args: RepoArgs; out: Plan };
   apply_repo: { args: RepoArgs; out: Applied };
   forget_repo: { args: { path: string }; out: Status };
+  check_update: { args: undefined; out: UpdateInfo | null };
+  install_update: { args: undefined; out: null };
 };
 
 export type CommandName = keyof Commands;
@@ -122,6 +127,8 @@ export const bridge = {
   planRepo: (args: RepoArgs) => call("plan_repo", args),
   applyRepo: (args: RepoArgs) => call("apply_repo", args),
   forgetRepo: (path: string) => call("forget_repo", { path }),
+  checkUpdate: () => call("check_update", undefined),
+  installUpdate: () => call("install_update", undefined),
   pickFolder: async () => (await backend()).pickFolder(),
   openUrl: async (url: string) => (await backend()).openUrl(url),
 };
