@@ -487,6 +487,44 @@ out=$("$HUB" member rename gulom ali_9737 --org shaxsiy 2>&1 || true)
 has "$out" "already used" "rename cannot take a used handle"
 ok "rename: handle changes, past mentions follow, collisions refused"
 
+echo "== usage (OpenTelemetry)"
+body=$(WP /api/v1/web/projects/dilnoza-lab/crm/agents/dilnoza-ai/tokens '{"name":"otel"}')
+OT=$(grep -o '"token":"dvr_[a-f0-9]*"' <<<"$body" | cut -d'"' -f4)
+NOW="$(date +%s)000000000"
+otlp() { # temporality cost tokens
+  printf '{"resourceMetrics":[{"resource":{"attributes":[{"key":"user.email","value":{"stringValue":"x@y.z"}}]},"scopeMetrics":[{"metrics":[
+{"name":"claude_code.cost.usage","unit":"USD","sum":{"aggregationTemporality":%s,"dataPoints":[{"attributes":[{"key":"model","value":{"stringValue":"claude-opus-5-5"}}],"timeUnixNano":"%s","asDouble":%s}]}},
+{"name":"claude_code.token.usage","sum":{"aggregationTemporality":%s,"dataPoints":[{"attributes":[{"key":"model","value":{"stringValue":"claude-opus-5-5"}},{"key":"type","value":{"stringValue":"output"}}],"timeUnixNano":"%s","asInt":"%s"}]}},
+{"name":"claude_code.lines_of_code.count","sum":{"aggregationTemporality":1,"dataPoints":[{"attributes":[{"key":"type","value":{"stringValue":"added"}}],"timeUnixNano":"%s","asInt":"7"}]}},
+{"name":"claude_code.active_time.total","sum":{"aggregationTemporality":1,"dataPoints":[{"attributes":[{"key":"type","value":{"stringValue":"cli"}}],"timeUnixNano":"%s","asDouble":30}]}}
+]}]}]}' "$1" "$NOW" "$2" "$1" "$NOW" "$3" "$NOW" "$NOW"
+}
+post_otlp() { curl -s -H "Authorization: Bearer $1" -H 'content-type: application/json' -H "x-davra-project: $2" "${@:3}" --data-binary @- "$DAVRA_HUB/otlp/v1/metrics"; }
+out=$(otlp 1 0.25 1000 | post_otlp "$OT" crm)
+[ "$out" = '{}' ] || fail "otlp export -> $out"
+otlp 1 0.5 500 | post_otlp "$OT" crm >/dev/null
+out=$(otlp 2 9 9 | post_otlp "$OT" crm)
+has "$out" '"rejectedDataPoints":"2"' "cumulative points are refused, not added"
+code=$(otlp 1 1 1 | curl -s -o /dev/null -w '%{http_code}' -H 'content-type: application/json' --data-binary @- "$DAVRA_HUB/otlp/v1/metrics")
+[ "$code" = 401 ] || fail "otlp without a token -> $code"
+code=$(otlp 1 1 1 | post_otlp "$T_LAI" crm -o /dev/null -w '%{http_code}')
+[ "$code" = 404 ] || fail "otlp for an ungranted project -> $code"
+body=$(W "$DAVRA_HUB/api/v1/web/projects/dilnoza-lab/crm/usage?days=7")
+has "$body" '"cost_usd":0.75' "usage sums deltas"
+has "$body" '"output_tokens":1500' "token usage"
+has "$body" '"lines_added":21' "lines"
+has "$body" '"active_secs":90.0' "active time"
+has "$body" '"handle":"dilnoza-ai","owner":"dilnoza"' "per member"
+has "$body" '"model":"claude-opus-5-5"' "per model"
+hasnt "$body" 'x@y.z' "identity attributes are dropped"
+has "$(W "$DAVRA_HUB/api/v1/web/projects/dilnoza-lab/crm/usage")" '"days":14' "default window"
+out=$(DAVRA_TOKEN="$OT" "$CLI" otel-headers --hub "$DAVRA_HUB" --project crm)
+has "$out" "\"Authorization\":\"Bearer $OT\"" "otel-headers prints the token"
+has "$out" '"X-Davra-Project":"crm"' "otel-headers names the project"
+out=$(DAVRA_HOME="$(mktemp -d)" "$CLI" otel-headers --hub "$DAVRA_HUB" --project crm)
+[ "$out" = '{}' ] || fail "otel-headers when logged out -> $out"
+ok "usage: Claude Code OTLP metrics summed per member/day/model, cumulative refused, token required, web report"
+
 echo "== row-level security"
 grep -q "row-level security on" "$WORK/hub.log" || fail "the hub should report row-level security on"
 out=$("$HUB" rls-check 2>&1) || fail "rls-check: $out"

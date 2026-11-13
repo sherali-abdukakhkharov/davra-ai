@@ -17,6 +17,7 @@ mod telegram;
 mod tgcard;
 mod tgexport;
 mod trust;
+mod usage;
 mod webapp;
 
 use std::sync::Arc;

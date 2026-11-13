@@ -102,6 +102,10 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/web/projects/{org}/{slug}/members/{handle}/remove",
             post(crate::team::remove_member),
         )
+        .route(
+            "/api/v1/web/projects/{org}/{slug}/usage",
+            get(crate::usage::report),
+        )
         .route("/api/v1/web/invites/{code}", get(crate::team::invite_info))
         .route(
             "/api/v1/web/invites/{code}/accept",
@@ -113,6 +117,11 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/projects/{slug}/handoffs/sync",
             post(crate::handoffs::sync).layer(DefaultBodyLimit::max(2 * 1024 * 1024)),
+        )
+        // Claude Code metrics (OTLP/HTTP JSON), sent with the agent token.
+        .route(
+            "/otlp/v1/metrics",
+            post(crate::usage::ingest).layer(DefaultBodyLimit::max(1024 * 1024)),
         )
         // Push payloads can be large; this route has its own limit.
         .route(

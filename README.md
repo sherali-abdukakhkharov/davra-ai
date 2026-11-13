@@ -122,6 +122,16 @@ time), Claude Haiku summarizes each project's day (done, in progress, blockers, 
 and its Telegram group. Quiet days are skipped. Try it first with
 `davra-hub digest <slug> --preview-to <telegram user id>` (sends only to you, stores nothing).
 
+### Agent usage
+
+`davra setup claude`, run inside a repository with a `.davra.toml`, also writes that repository's
+`.claude/settings.local.json` (kept out of git). Claude Code then sends its OpenTelemetry metrics
+(OTLP/HTTP JSON, delta) to `<hub>/otlp/v1/metrics`. The token is not in that file:
+`otelHeadersHelper` runs `davra otel-headers`, which reads it from the keychain. Only counts are
+stored, per member, day and model: cost, tokens, lines added and removed, commits, PRs, edit
+decisions and active time. E-mail, account and session attributes are dropped, and no prompts or
+code are sent. The web app's **Usage** tab shows them. Skip it with `--no-usage`; `--undo` removes it.
+
 ## Development
 
 ```sh

@@ -104,6 +104,18 @@ enum Cmd {
         /// Remove the Davra hooks and MCP server again.
         #[arg(long, conflicts_with = "dry_run")]
         undo: bool,
+        /// Don't report Claude Code usage (tokens, cost, lines) for this repository.
+        #[arg(long)]
+        no_usage: bool,
+    },
+    /// Print the OpenTelemetry headers (agent token, project) for Claude Code's
+    /// otelHeadersHelper. Prints {} when not logged in, so a session never breaks.
+    #[command(hide = true)]
+    OtelHeaders {
+        #[arg(long)]
+        hub: String,
+        #[arg(long)]
+        project: String,
     },
 }
 
@@ -415,12 +427,22 @@ async fn run(cli: Cli) -> Result<()> {
             client: _,
             dry_run,
             undo,
+            no_usage,
         } => {
             if undo {
                 setup::undo()?;
             } else {
-                setup::run(dry_run)?;
+                setup::run(dry_run, !no_usage)?;
             }
+        }
+        Cmd::OtelHeaders { hub, project } => {
+            let mut h = serde_json::Map::new();
+            if let Ok(token) = config::normalize_hub(&hub).and_then(|hub| config::load_token(&hub))
+            {
+                h.insert("Authorization".into(), format!("Bearer {token}").into());
+                h.insert("X-Davra-Project".into(), project.into());
+            }
+            println!("{}", serde_json::Value::Object(h));
         }
     }
     Ok(())

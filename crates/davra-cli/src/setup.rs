@@ -147,7 +147,146 @@ fn backup(path: &Path) -> Result<Option<PathBuf>> {
     Ok(Some(to))
 }
 
-pub fn run(dry_run: bool) -> Result<()> {
+// ---- Usage (OpenTelemetry) -------------------------------------------------
+
+/// Claude Code settings that send its metrics (counts only: tokens, cost,
+/// lines, commits, active time) to the hub. They go in the repository's
+/// `.claude/settings.local.json`, so only Davra repositories report, each to
+/// its own hub. The token comes from the keychain via `otelHeadersHelper`.
+pub struct UsagePlan {
+    pub path: PathBuf,
+    pub root: PathBuf,
+    pub hub: String,
+    pub project: String,
+    pub present: bool,
+}
+
+const USAGE_ENV: [(&str, &str); 5] = [
+    ("CLAUDE_CODE_ENABLE_TELEMETRY", "1"),
+    ("OTEL_METRICS_EXPORTER", "otlp"),
+    ("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/json"),
+    ("OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE", "delta"),
+    ("OTEL_METRICS_INCLUDE_ACCOUNT_UUID", "false"),
+];
+const ENDPOINT_ENV: &str = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT";
+
+pub fn metrics_endpoint(hub: &str) -> String {
+    format!("{}/otlp/v1/metrics", hub.trim_end_matches('/'))
+}
+
+fn helper_cmd(exe: &str, hub: &str, project: &str) -> String {
+    let exe = if exe.contains(' ') {
+        format!("\"{exe}\"")
+    } else {
+        exe.to_string()
+    };
+    format!("{exe} otel-headers --hub {hub} --project {project}")
+}
+
+fn has_usage(settings: &Value, hub: &str) -> bool {
+    settings["env"][ENDPOINT_ENV] == metrics_endpoint(hub).as_str()
+        && settings["otelHeadersHelper"]
+            .as_str()
+            .is_some_and(|c| c.contains("otel-headers"))
+}
+
+pub fn merge_usage(settings: &mut Value, exe: &str, hub: &str, project: &str) {
+    if !settings.is_object() {
+        *settings = json!({});
+    }
+    if !settings["env"].is_object() {
+        settings["env"] = json!({});
+    }
+    for (k, v) in USAGE_ENV {
+        settings["env"][k] = json!(v);
+    }
+    settings["env"][ENDPOINT_ENV] = json!(metrics_endpoint(hub));
+    settings["otelHeadersHelper"] = json!(helper_cmd(exe, hub, project));
+}
+
+/// Removes what `merge_usage` added; true if anything changed.
+pub fn remove_usage(settings: &mut Value) -> bool {
+    let ours = settings["otelHeadersHelper"]
+        .as_str()
+        .is_some_and(|c| c.contains("otel-headers"));
+    if !ours {
+        return false;
+    }
+    if let Some(o) = settings.as_object_mut() {
+        o.remove("otelHeadersHelper");
+    }
+    if let Some(env) = settings["env"].as_object_mut() {
+        for (k, _) in USAGE_ENV {
+            env.remove(k);
+        }
+        env.remove(ENDPOINT_ENV);
+        if env.is_empty() {
+            settings.as_object_mut().map(|o| o.remove("env"));
+        }
+    }
+    true
+}
+
+fn usage_plan(cwd: &Path) -> Result<Option<UsagePlan>> {
+    let Some((file, pf)) = davra_core::project_file::find(cwd) else {
+        return Ok(None);
+    };
+    let root = file.parent().map(Path::to_path_buf).unwrap_or_default();
+    let hub = config::target(cwd)?.hub;
+    let path = root.join(".claude").join("settings.local.json");
+    let present = has_usage(&read_settings(&path)?, &hub);
+    Ok(Some(UsagePlan {
+        path,
+        root,
+        hub,
+        project: pf.project,
+        present,
+    }))
+}
+
+/// Keeps the local settings file out of commits (Claude Code does the same
+/// when it creates the file itself).
+fn exclude_from_git(root: &Path) {
+    let rel = ".claude/settings.local.json";
+    let ignored = Command::new("git")
+        .args(["check-ignore", "-q", rel])
+        .current_dir(root)
+        .status();
+    if !matches!(ignored, Ok(s) if s.code() == Some(1)) {
+        return; // ignored already, or not a git repository
+    }
+    let Ok(out) = Command::new("git")
+        .args(["rev-parse", "--git-path", "info/exclude"])
+        .current_dir(root)
+        .output()
+    else {
+        return;
+    };
+    let p = root.join(String::from_utf8_lossy(&out.stdout).trim());
+    let mut text = std::fs::read_to_string(&p).unwrap_or_default();
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(rel);
+    text.push('\n');
+    if let Some(d) = p.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let _ = std::fs::write(&p, text);
+}
+
+fn write_settings(path: &Path, settings: &Value) -> Result<()> {
+    if let Some(b) = backup(path)? {
+        println!("  backup:   {}", b.display());
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, serde_json::to_string_pretty(settings)? + "\n")
+        .with_context(|| format!("writing {}", path.display()))
+}
+
+pub fn run(dry_run: bool, usage: bool) -> Result<()> {
     let p = plan()?;
     println!("Davra setup for Claude Code");
     println!("  davra:    {}", p.exe);
@@ -180,6 +319,20 @@ pub fn run(dry_run: bool) -> Result<()> {
             cwd.display()
         );
     }
+    let usage_plan = if usage { usage_plan(&cwd)? } else { None };
+    match &usage_plan {
+        Some(u) if u.present => println!("  usage:    already reporting to {} (kept)", u.hub),
+        Some(u) => println!(
+            "  usage:    + Claude Code metrics for {} -> {}\n            \
+             in {} (counts only: tokens, cost, lines, commits;\n            \
+             no prompts or code). Skip with --no-usage.",
+            u.project,
+            metrics_endpoint(&u.hub),
+            u.path.display()
+        ),
+        None if usage => {}
+        None => println!("  usage:    off (--no-usage)"),
+    }
     if dry_run {
         println!("\n--dry-run: nothing changed.");
         return Ok(());
@@ -198,17 +351,14 @@ pub fn run(dry_run: bool) -> Result<()> {
     }
     if !p.missing.is_empty() {
         let mut settings = read_settings(&p.settings_path)?;
-        if let Some(b) = backup(&p.settings_path)? {
-            println!("  backup:   {}", b.display());
-        }
         merge_hooks(&mut settings, &p.exe);
-        if let Some(dir) = p.settings_path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        std::fs::write(
-            &p.settings_path,
-            serde_json::to_string_pretty(&settings)? + "\n",
-        )?;
+        write_settings(&p.settings_path, &settings)?;
+    }
+    if let Some(u) = usage_plan.filter(|u| !u.present) {
+        let mut settings = read_settings(&u.path)?;
+        merge_usage(&mut settings, &p.exe, &u.hub, &u.project);
+        write_settings(&u.path, &settings)?;
+        exclude_from_git(&u.root);
     }
     println!("\nDone. Open a new Claude Code session in a repo with a .davra.toml.");
     println!("For live messages (they reach the agent even while it waits), start it with:");
@@ -246,6 +396,18 @@ pub fn undo() -> Result<()> {
         std::fs::write(&path, serde_json::to_string_pretty(&settings)? + "\n")?;
         println!("removed Davra hooks from {}", path.display());
     }
+    if let Some((file, _)) = davra_core::project_file::find(&std::env::current_dir()?) {
+        let local = file
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join(".claude")
+            .join("settings.local.json");
+        let mut s = read_settings(&local)?;
+        if remove_usage(&mut s) {
+            write_settings(&local, &s)?;
+            println!("removed usage reporting from {}", local.display());
+        }
+    }
     if mcp_registered().unwrap_or(false) {
         let _ = claude_cmd()
             .args(["mcp", "remove", "--scope", "user", "davra"])
@@ -282,6 +444,29 @@ mod tests {
         let once = s.clone();
         merge_hooks(&mut s, "C:/u/.davra/bin/davra.exe");
         assert_eq!(s, once);
+    }
+
+    #[test]
+    fn usage_settings_merge_and_undo() {
+        let mut s = json!({ "env": { "FOO": "1" }, "permissions": { "allow": [] } });
+        let hub = "https://davra.example.uz";
+        merge_usage(&mut s, "C:/Program Files/davra.exe", hub, "mosla");
+        assert!(has_usage(&s, hub));
+        assert_eq!(
+            s["env"]["OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"],
+            "https://davra.example.uz/otlp/v1/metrics"
+        );
+        assert_eq!(
+            s["otelHeadersHelper"],
+            "\"C:/Program Files/davra.exe\" otel-headers --hub https://davra.example.uz --project mosla"
+        );
+        assert!(!has_usage(&s, "https://other.example"));
+        assert!(remove_usage(&mut s));
+        assert_eq!(
+            s,
+            json!({ "env": { "FOO": "1" }, "permissions": { "allow": [] } })
+        );
+        assert!(!remove_usage(&mut s));
     }
 
     #[test]
