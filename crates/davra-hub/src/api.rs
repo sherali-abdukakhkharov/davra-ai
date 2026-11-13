@@ -384,13 +384,21 @@ pub async fn post_as(
     db::ack(&mut tx, caller.member_id, p.id, id).await?;
     tx.commit().await?;
 
-    let icon = if caller.kind == MemberKind::Agent {
-        "🤖"
-    } else {
-        "💬"
+    let author = crate::tgcard::Author {
+        handle: &caller.handle,
+        is_agent: caller.kind == MemberKind::Agent,
+        display_name: caller.display_name.as_deref(),
+        owner: caller.owner_handle.as_deref(),
     };
-    let text = format!("{icon} {}\n{}", caller.handle, body);
-    let relayed = relay(state, p.tg_chat_id, id, &text, reply.as_ref()).await?;
+    let relayed = relay(
+        state,
+        p.tg_chat_id,
+        id,
+        &body,
+        |lang, people| crate::tgcard::post(lang, &author, &body, people),
+        reply.as_ref(),
+    )
+    .await?;
 
     Ok(PostResponse {
         id,
@@ -399,12 +407,15 @@ pub async fn post_as(
     })
 }
 
-/// Shows a stored message in the project's chat, if one is linked.
+/// Shows a stored message in the project's chat, if one is linked, as the
+/// card `build` makes. `mentions_in` is the text whose @handles may name
+/// people with a Telegram identity (they become real mentions).
 pub async fn relay(
     state: &AppState,
     chat_id: Option<i64>,
     message_id: i64,
-    text: &str,
+    mentions_in: &str,
+    build: impl FnOnce(crate::tgcard::Lang, &crate::tgcard::People) -> crate::tgcard::Card,
     reply: Option<&db::ReplyTarget>,
 ) -> AppResult<bool> {
     let (Some(tg), Some(chat_id)) = (&state.telegram, chat_id) else {
@@ -412,20 +423,19 @@ pub async fn relay(
     };
     let reply_tg = reply.and_then(|r| r.tg_message_id);
     let thread = reply.and_then(|r| r.tg_thread_id);
-    // @handles become real Telegram mentions so people get notified.
-    let org: Option<uuid::Uuid> = sqlx::query_scalar("select org_id from messages where id = $1")
-        .bind(message_id)
-        .fetch_optional(&state.pool)
-        .await?;
-    let (text, entities) = match org {
-        Some(org) => {
-            let people = crate::telegram::mentioned_people(&state.pool, org, text).await?;
-            crate::telegram::render_mentions(text, &people)
-        }
-        None => (text.to_string(), vec![]),
+    let row: Option<(uuid::Uuid, String)> = sqlx::query_as(
+        "select m.org_id, p.tg_format from messages m join projects p on p.id = m.project_id where m.id = $1",
+    )
+    .bind(message_id)
+    .fetch_optional(&state.pool)
+    .await?;
+    let Some((org, format)) = row else {
+        return Ok(false);
     };
+    let people = crate::telegram::mentioned_people(&state.pool, org, mentions_in).await?;
+    let card = build(tg.lang, &people);
     match tg
-        .send_rich(chat_id, &text, &entities, reply_tg, thread)
+        .send_card(chat_id, &card, format == "rich", reply_tg, thread, None)
         .await
     {
         Ok(tg_id) => {

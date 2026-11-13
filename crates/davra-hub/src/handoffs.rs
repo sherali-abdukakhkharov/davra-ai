@@ -120,13 +120,6 @@ fn clean_labels(raw: &[String]) -> Vec<String> {
     out
 }
 
-fn first_line(body: &str) -> String {
-    body.lines()
-        .find(|l| !l.trim().is_empty())
-        .unwrap_or("")
-        .to_string()
-}
-
 fn ticket_part(t: &Option<String>) -> String {
     t.as_deref().map(|t| format!(" · {t}")).unwrap_or_default()
 }
@@ -177,15 +170,25 @@ async fn announce_new(
         .bind(id)
         .execute(&state.pool)
         .await?;
-    let tg = format!(
-        "📋 Handoff #{}{} · {} → {}\n{}",
-        h.id,
-        ticket_part(&h.ticket),
-        h.from,
-        h.to.join(", "),
-        format::truncate_chars(&first_line(&h.body), 600)
-    );
-    relay(state, p.tg_chat_id, id, &tg, None).await?;
+    relay(
+        state,
+        p.tg_chat_id,
+        id,
+        &h.body,
+        |lang, people| {
+            crate::tgcard::handoff_new(
+                lang,
+                h.id,
+                h.ticket.as_deref(),
+                &h.from,
+                &h.to,
+                &h.body,
+                people,
+            )
+        },
+        None,
+    )
+    .await?;
     Ok(id)
 }
 
@@ -232,8 +235,28 @@ async fn announce_done(
     )
     .await?
     .ok_or_else(|| AppError::Internal(anyhow::anyhow!("insert returned no id")))?;
-    let tg = format!("✅ {}", format::truncate_chars(&body, 700));
-    relay(state, p.tg_chat_id, id, &tg, reply.as_ref()).await?;
+    let closer = by
+        .map(|c| c.handle.clone())
+        .unwrap_or_else(|| h.to.first().cloned().unwrap_or_default());
+    let note_shown = format::truncate_chars(&note, 2000);
+    relay(
+        state,
+        p.tg_chat_id,
+        id,
+        &note_shown,
+        |lang, people| {
+            crate::tgcard::handoff_done(
+                lang,
+                h.id,
+                h.ticket.as_deref(),
+                &closer,
+                &note_shown,
+                people,
+            )
+        },
+        reply.as_ref(),
+    )
+    .await?;
     Ok(())
 }
 

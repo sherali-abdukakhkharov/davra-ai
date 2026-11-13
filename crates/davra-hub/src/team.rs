@@ -540,7 +540,16 @@ pub async fn accept_invite(
         .await?
         {
             // The join is done; a Telegram hiccup must not undo it for the user.
-            if let Err(e) = crate::api::relay(&state, chat, id, &format!("👋 {text}"), None).await
+            let mention = format!("@{handle}");
+            if let Err(e) = crate::api::relay(
+                &state,
+                chat,
+                id,
+                &mention,
+                |lang, people| crate::tgcard::joined(lang, &handle, &role, people),
+                None,
+            )
+            .await
             {
                 tracing::warn!(error = ?e, "could not relay the join notice");
             }

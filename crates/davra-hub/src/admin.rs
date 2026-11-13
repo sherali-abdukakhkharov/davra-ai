@@ -563,3 +563,29 @@ pub async fn rls_check(pool: &PgPool) -> Result<()> {
     );
     Ok(())
 }
+
+pub async fn project_tg_format(
+    pool: &PgPool,
+    org: Option<&str>,
+    project: &str,
+    format: &str,
+) -> Result<()> {
+    let (org_id, _) = resolve_org(pool, org).await?;
+    let pid = project_id(pool, org_id, project).await?;
+    sqlx::query("update projects set tg_format = $2 where id = $1")
+        .bind(pid)
+        .bind(format)
+        .execute(pool)
+        .await?;
+    db::audit(
+        pool,
+        Some(org_id),
+        None,
+        "project.tg_format",
+        Some(project),
+        serde_json::json!({ "format": format }),
+    )
+    .await?;
+    println!("project '{project}' now writes {format} Telegram messages");
+    Ok(())
+}

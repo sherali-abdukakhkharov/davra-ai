@@ -127,18 +127,34 @@ pub async fn ask(
 
     let mut buttons = false;
     if let (Some(tg), Some(chat)) = (&state.telegram, p.tg_chat_id) {
-        let text = format!("❓ {}\n{}", caller.handle, body);
-        let labels: Vec<(String, String)> = options
+        let rows: Vec<serde_json::Value> = options
             .iter()
             .enumerate()
-            .map(|(i, o)| (o.clone(), callback_data(qid, i)))
+            .map(
+                |(i, o)| serde_json::json!([{ "text": o, "callback_data": callback_data(qid, i) }]),
+            )
             .collect();
-        let people = crate::telegram::mentioned_people(&state.pool, p.org_id, &text).await?;
-        let (text, entities) = crate::telegram::render_mentions(&text, &people);
-        match tg.send_with_buttons(chat, &text, &entities, &labels).await {
+        let keyboard = (!rows.is_empty()).then(|| serde_json::json!({ "inline_keyboard": rows }));
+        let people = crate::telegram::mentioned_people(
+            &state.pool,
+            p.org_id,
+            &format!("@{owner} {question}"),
+        )
+        .await?;
+        let card = crate::tgcard::question(
+            tg.lang,
+            qid,
+            &caller.handle,
+            &owner,
+            &question,
+            &options,
+            &people,
+        );
+        let rich = tg_rich(&state.pool, p.id).await?;
+        match tg.send_card(chat, &card, rich, None, None, keyboard).await {
             Ok(tg_id) => {
                 db::set_tg_ids(&state.pool, mid, tg_id, None).await?;
-                buttons = !labels.is_empty();
+                buttons = !options.is_empty();
             }
             Err(e) => tracing::warn!(error = %e, "telegram question relay failed"),
         }
@@ -262,11 +278,21 @@ pub async fn answer(
             Some(m) => db::reply_target(&state.pool, q.project_id, m).await?,
             None => None,
         };
+        let people = crate::telegram::mentioned_people(
+            &state.pool,
+            q.org_id,
+            &format!("@{} {text}", caller.handle),
+        )
+        .await?;
+        let card = crate::tgcard::answer(&caller.handle, &text, &people);
+        let rich = tg_rich(&state.pool, q.project_id).await?;
         let sent = tg
-            .send(
+            .send_card(
                 chat,
-                &format!("✅ {}: {text}", caller.handle),
+                &card,
+                rich,
                 reply.as_ref().and_then(|r| r.tg_message_id),
+                None,
                 None,
             )
             .await;
@@ -314,12 +340,22 @@ pub async fn on_button(
         .await?;
     if let Some(m) = &cb.message {
         tg.clear_buttons(m.chat.id, m.message_id).await.ok();
+        let who: Option<String> = sqlx::query_scalar("select handle from members where id = $1")
+            .bind(q.owner_id)
+            .fetch_optional(pool)
+            .await?;
+        let who = who.unwrap_or_default();
+        let people = crate::telegram::mentioned_people(pool, q.org_id, &format!("@{who}")).await?;
+        let card = crate::tgcard::answer(&who, &choice, &people);
+        let rich = tg_rich(pool, q.project_id).await?;
         if let Ok(tg_id) = tg
-            .send(
+            .send_card(
                 m.chat.id,
-                &format!("✅ {choice}"),
+                &card,
+                rich,
                 Some(m.message_id),
                 m.message_thread_id,
+                None,
             )
             .await
         {
@@ -327,6 +363,15 @@ pub async fn on_button(
         }
     }
     Ok(())
+}
+
+/// Whether the project wants rich Telegram cards (else plain text).
+async fn tg_rich(pool: &PgPool, project_id: Uuid) -> Result<bool> {
+    let f: Option<String> = sqlx::query_scalar("select tg_format from projects where id = $1")
+        .bind(project_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(f.as_deref() != Some("plain"))
 }
 
 #[cfg(test)]

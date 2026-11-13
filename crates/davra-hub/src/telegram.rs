@@ -24,6 +24,8 @@ pub struct Telegram {
     base: String,
     pub bot_id: i64,
     pub username: String,
+    /// Language of card labels (`DAVRA_LANG`).
+    pub lang: crate::tgcard::Lang,
 }
 
 #[derive(Deserialize)]
@@ -292,6 +294,7 @@ impl Telegram {
             base: format!("https://api.telegram.org/bot{token}"),
             bot_id: 0,
             username: String::new(),
+            lang: crate::tgcard::Lang::from_env(),
         };
         let me: BotUser = t
             .call("getMe", json!({}))
@@ -403,6 +406,72 @@ impl Telegram {
             .call(
                 "editMessageReplyMarkup",
                 json!({ "chat_id": chat_id, "message_id": message_id, "reply_markup": { "inline_keyboard": [] } }),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Sends a card: a rich message when `rich`, else (or if Telegram refuses
+    /// the rich one) the card's plain text. Returns the Telegram message id.
+    pub async fn send_card(
+        &self,
+        chat_id: i64,
+        card: &crate::tgcard::Card,
+        rich: bool,
+        reply_to: Option<i64>,
+        thread: Option<i64>,
+        keyboard: Option<serde_json::Value>,
+    ) -> Result<i64> {
+        let mut common = json!({ "chat_id": chat_id });
+        if card.silent {
+            common["disable_notification"] = json!(true);
+        }
+        if let Some(r) = reply_to {
+            common["reply_parameters"] =
+                json!({ "message_id": r, "allow_sending_without_reply": true });
+        }
+        if let Some(t) = thread {
+            common["message_thread_id"] = json!(t);
+        }
+        if let Some(k) = &keyboard {
+            common["reply_markup"] = k.clone();
+        }
+        if rich {
+            let mut body = common.clone();
+            body["rich_message"] = json!({ "html": card.html, "skip_entity_detection": true });
+            match self.call::<SentMessage>("sendRichMessage", body).await {
+                Ok(sent) => return Ok(sent.message_id),
+                Err(e) if card.plain.is_empty() => return Err(e),
+                Err(e) => tracing::warn!(error = %e, "rich message refused; sending plain text"),
+            }
+        }
+        let text = davra_core::format::truncate_chars(&card.plain, MAX_TG_CHARS);
+        let mut body = common;
+        body["text"] = json!(text);
+        body["link_preview_options"] = json!({ "is_disabled": true });
+        let fits = entities_within(&card.entities, &text);
+        if !fits.is_empty() {
+            body["entities"] = json!(fits);
+        }
+        let sent: SentMessage = self.call("sendMessage", body).await?;
+        Ok(sent.message_id)
+    }
+
+    /// Replaces a rich message's content (the digest grows this way).
+    pub async fn edit_card(
+        &self,
+        chat_id: i64,
+        message_id: i64,
+        card: &crate::tgcard::Card,
+    ) -> Result<()> {
+        let _: serde_json::Value = self
+            .call(
+                "editMessageText",
+                json!({
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "rich_message": { "html": card.html, "skip_entity_detection": true },
+                }),
             )
             .await?;
         Ok(())

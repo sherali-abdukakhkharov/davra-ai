@@ -13,6 +13,7 @@ mod questions;
 mod secrets;
 mod team;
 mod telegram;
+mod tgcard;
 mod tgexport;
 mod trust;
 mod webapp;
@@ -108,6 +109,14 @@ enum Cmd {
     Migrate,
     /// Show orgs, projects and members.
     Status,
+    /// Send sample Telegram cards to one person (a private chat with the bot) to see them.
+    TgPreview {
+        /// Telegram user id (they must have started the bot).
+        #[arg(long)]
+        to: i64,
+        #[arg(long, env = "DAVRA_TELEGRAM_TOKEN", hide_env_values = true)]
+        telegram_token: String,
+    },
     /// Prove row-level security isolates orgs (exit code 1 if it does not).
     RlsCheck,
     #[command(subcommand)]
@@ -173,6 +182,15 @@ enum ProjectCmd {
         slug: String,
         #[arg(long, allow_hyphen_values = true)]
         chat: i64,
+        #[arg(long)]
+        org: Option<String>,
+    },
+    /// How the bot writes in the project's Telegram group: rich cards, or plain text
+    /// for Telegram apps that cannot show rich messages yet.
+    TgFormat {
+        slug: String,
+        #[arg(value_parser = ["rich", "plain"])]
+        format: String,
         #[arg(long)]
         org: Option<String>,
     },
@@ -404,6 +422,10 @@ async fn main() -> Result<()> {
         }
         Cmd::Status => admin::status(&pool).await?,
         Cmd::RlsCheck => admin::rls_check(&pool).await?,
+        Cmd::TgPreview { to, telegram_token } => {
+            let tg = telegram::Telegram::connect(telegram_token.trim()).await?;
+            tgcard::preview(&tg, to).await?
+        }
         Cmd::Org(OrgCmd::Create { slug, name }) => {
             admin::org_create(&pool, &slug, name.as_deref()).await?
         }
@@ -428,6 +450,9 @@ async fn main() -> Result<()> {
                 &public_url,
             )
             .await?
+        }
+        Cmd::Project(ProjectCmd::TgFormat { slug, format, org }) => {
+            admin::project_tg_format(&pool, org.as_deref(), &slug, &format).await?
         }
         Cmd::Project(ProjectCmd::LinkTelegram { slug, chat, org }) => {
             admin::project_link_telegram(&pool, org.as_deref(), &slug, chat).await?
