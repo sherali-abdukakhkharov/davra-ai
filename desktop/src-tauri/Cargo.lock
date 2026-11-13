@@ -881,7 +881,7 @@ dependencies = [
 
 [[package]]
 name = "davra-cli"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -904,7 +904,7 @@ dependencies = [
 
 [[package]]
 name = "davra-core"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "chrono",
  "regex",
@@ -915,7 +915,7 @@ dependencies = [
 
 [[package]]
 name = "davra-desktop"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "davra-cli",

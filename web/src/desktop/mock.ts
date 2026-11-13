@@ -5,8 +5,8 @@
 
 import type { Applied, Backend, Change, ClientId, Commands, Plan, RepoArgs, Status } from "./bridge";
 
-const BUNDLED = "0.2.2";
-const APP_VERSION = "0.2.2";
+const BUNDLED = "0.2.3";
+const APP_VERSION = "0.2.3";
 const KEY = "davra-desktop-mock";
 
 const windows = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
@@ -392,7 +392,7 @@ export function createMock(): Backend {
       return status();
     },
     // ?mock=update (or "update" anywhere in the URL) offers a newer version.
-    check_update: () => (location.search.includes("update") ? { version: "0.2.3", current: APP_VERSION, notes: "Davra Desktop 0.2.3" } : null),
+    check_update: () => (location.search.includes("update") ? { version: "0.2.4", current: APP_VERSION, notes: "Davra Desktop 0.2.4" } : null),
     install_update: () => {
       // The real app restarts into the new version; the mock just reloads.
       setTimeout(() => location.reload(), 600);
