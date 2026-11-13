@@ -17,6 +17,9 @@ pub struct Config {
     /// Repositories linked from Davra Desktop.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub repos: Vec<PathBuf>,
+    /// Repositories where `davra claude` does not report usage.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub usage_off: Vec<PathBuf>,
 }
 
 pub fn dir() -> Result<PathBuf> {

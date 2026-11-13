@@ -133,13 +133,15 @@ and its Telegram group. Quiet days are skipped. Try it first with
 
 ### Agent usage
 
-`davra setup claude`, run inside a repository with a `.davra.toml`, also writes that repository's
-`.claude/settings.local.json` (kept out of git). Claude Code then sends its OpenTelemetry metrics
-(OTLP/HTTP JSON, delta) to `<hub>/otlp/v1/metrics`. The token is not in that file:
-`otelHeadersHelper` runs `davra otel-headers`, which reads it from the keychain. Only counts are
-stored, per member, day and model: cost, tokens, lines added and removed, commits, PRs, edit
-decisions and active time. E-mail, account and session attributes are dropped, and no prompts or
-code are sent. The web app's **Usage** tab shows them. Skip it with `--no-usage`; `--undo` removes it.
+Start Claude Code with `davra claude` in a repository that has a `.davra.toml`, and that session
+sends its OpenTelemetry metrics (OTLP/HTTP JSON, delta) to `<hub>/otlp/v1/metrics`. `davra claude`
+hands the telemetry settings to that one session (`--settings`): Claude Code ignores them in a
+repository's own `.claude/settings*.json`, and nothing goes into your global settings, so other
+repositories report nothing. The token is in no file: `otelHeadersHelper` runs `davra otel-headers`,
+which reads it from the keychain. Only counts are stored, per member, day and model: cost, tokens,
+lines added and removed, commits, PRs, edit decisions and active time. E-mail, account and session
+attributes are dropped, and no prompts or code are sent. The web app's **Usage** tab shows them.
+Turn it off for a repository with `davra setup claude --no-usage` (kept in `~/.davra/config.toml`).
 
 ## Development
 

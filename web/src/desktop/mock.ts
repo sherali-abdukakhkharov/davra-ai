@@ -320,42 +320,18 @@ export function createMock(): Backend {
         new_file: false,
       });
     }
-    const settings = join(path, ".claude", "settings.local.json");
-    const had = existing?.usage ?? false;
-    const helper = `${exe()} otel-headers --hub ${s.hub} --project ${project}`;
-    if (usage && (!had || existing?.project !== project)) {
+    // Like the Rust side: usage is a switch in ~/.davra/config.toml, used by `davra claude`.
+    const had = existing ? existing.usage : true;
+    if (usage !== had) {
       changes.push({
-        kind: "file",
-        title: "Report Claude Code usage to the hub",
-        path: settings,
-        diff: [
-          `--- /dev/null`,
-          `+++ ${fwd(settings)}`,
-          "@@ -0,0 +1,11 @@",
-          "+{",
-          '+  "env": {',
-          '+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",',
-          '+    "OTEL_METRICS_EXPORTER": "otlp",',
-          '+    "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL": "http/json",',
-          '+    "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE": "delta",',
-          '+    "OTEL_METRICS_INCLUDE_ACCOUNT_UUID": "false",',
-          `+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "${s.hub}/otlp/v1/metrics"`,
-          "+  },",
-          `+  "otelHeadersHelper": "${helper}"`,
-          "+}",
-        ].join("\n"),
-        new_file: true,
-      });
-      notes.push("settings.local.json is personal and git-ignored by Claude Code. Start a new Claude Code session for usage to show up.");
-    } else if (!usage && had) {
-      changes.push({
-        kind: "file",
-        title: "Stop reporting Claude Code usage",
-        path: settings,
-        diff: [`--- ${fwd(settings)}`, `+++ /dev/null`, "@@ -1,11 +0,0 @@", "-{", '-  "env": {', '-    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",', "-    …", "-  },", `-  "otelHeadersHelper": "${helper}"`, "-}"].join("\n"),
+        kind: "command",
+        title: usage ? "Report Claude Code usage from this repository (counts only, no prompts or code)" : "Stop reporting Claude Code usage from this repository",
+        path: null,
+        diff: `${usage ? "on" : "off"}: usage for ${path} in ~/.davra/config.toml`,
         new_file: false,
       });
     }
+    if (usage) notes.push("Usage is reported by sessions you start with `davra claude` in this repository.");
     return { changes, notes: changes.length ? notes : [] };
   };
 

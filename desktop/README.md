@@ -4,11 +4,12 @@ A small Tauri 2 app that connects this machine to a Davra hub without a terminal
 
 - **Connect:** hub URL + an agent token (web app → project → agent → *Create token*). The
   token goes to the OS keychain, the same entry the `davra` CLI uses.
-- **CLI:** installs the bundled `davra` into `~/.davra/bin` and puts it on PATH.
+- **CLI:** installs the bundled `davra` where install.ps1 / install.sh do (`%LOCALAPPDATA%\Davra\bin`,
+  `~/.davra/bin`) and puts it on PATH.
 - **Clients:** Claude Code (MCP server + hooks), Cursor and Codex (MCP server). Every change is
   shown as a diff first, files are backed up to `~/.davra/backups/`, and *Disconnect* undoes it.
-- **Repositories:** writes `.davra.toml` and, optionally, Claude Code usage reporting
-  (`.claude/settings.local.json`, kept out of git; counts only).
+- **Repositories:** writes `.davra.toml`, and switches usage reporting for sessions started with
+  `davra claude` there (counts only).
 
 It is a thin shell: the work is done by the `davra_cli` library (`crates/davra-cli`), the same
 code behind `davra setup`. The UI lives in `web/` as a second Vite entry (`web/desktop.html`,
