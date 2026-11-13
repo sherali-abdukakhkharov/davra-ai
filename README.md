@@ -62,6 +62,15 @@ davra login --hub https://davra.example.uz      # paste the token; stored in the
 davra setup claude                              # prints the MCP + hooks config to add
 ```
 
+`davra setup cursor` and `davra setup codex` add the MCP server to Cursor and Codex. Every setup
+lists its changes first (`--dry-run` shows the diffs), backs up each file it touches to
+`~/.davra/backups/`, and `--undo` removes it again.
+
+**Davra Desktop** does the same without a terminal: sign in with the token, install the CLI,
+connect Claude Code / Cursor / Codex, and link repositories, each change reviewed as a diff
+first. Windows (NSIS, per-user) and Linux (.deb, AppImage) builds come from
+`scripts/build-desktop.sh`; see [desktop/README.md](desktop/README.md).
+
 Commit a `.davra.toml` to the repository (no secrets) so agents know their project:
 
 ```toml
@@ -151,7 +160,8 @@ Layout: `crates/davra-core` (protocol, formatting, redaction), `crates/davra-hub
   GitHub webhooks. Daily digest moves to v0.3.
 - **v0.3**: web app (landing, accounts: started), orgs with Postgres RLS, OAuth 2.1 + OIDC SSO,
   device revocation, audit UI, daily digest.
-- **v0.4**: Davra Desktop (Tauri) installer: Claude Code / Cursor / Codex setup with diff + backup.
+- **v0.4** (first build): Davra Desktop (Tauri) for Windows and Linux: Claude Code / Cursor / Codex
+  setup with diff + backup, CLI install, repository linking. Next: code signing, auto-update, tray.
 - **v0.5**: analytics dashboard (OpenTelemetry), workplace mode, Slack adapter, open beta.
 
 ## License

@@ -1,0 +1,62 @@
+# Build image for Davra Desktop: Linux (.deb, .AppImage) and Windows (NSIS, cross-compiled
+# with cargo-xwin + x86_64-pc-windows-msvc, the route Tauri documents for Linux hosts).
+#
+#   docker build -t davra-desktop-build -f desktop/Dockerfile.build desktop
+#
+# Used by scripts/build-desktop.sh. Bookworm on purpose: the AppImage links against the
+# build host's glibc (2.36), so an older base runs on more distros.
+
+# --- makensis 3.13 ------------------------------------------------------------------------
+# Tauri 2.12's installer template needs NSIS 3.13 (e.g. Include/Win/RestartManager.nsh);
+# bookworm ships 3.08. Build the Linux compiler from source and pair it with the exact
+# Windows-side data (Stubs, Plugins, Include) Tauri itself downloads on Windows hosts.
+FROM debian:bookworm-slim AS nsis
+ARG NSIS_VERSION=3.13
+ARG NSIS_SRC_SHA256=a8ffe024602d46b6d766f9e1ce30c324ad2a24daeacd3efc2642d436a0c157ac
+ARG NSIS_ZIP_SHA256=ba63dffc4410ee89193e1cb5a41989991bd77c61068da17e3156d136b7b0b3d8
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl bzip2 unzip g++ scons zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+RUN curl -fsSL -o src.tar.bz2 "https://downloads.sourceforge.net/project/nsis/NSIS%203/${NSIS_VERSION}/nsis-${NSIS_VERSION}-src.tar.bz2" \
+ && curl -fsSL -o data.zip "https://github.com/tauri-apps/binary-releases/releases/download/nsis-${NSIS_VERSION}/nsis-${NSIS_VERSION}.zip" \
+ && echo "${NSIS_SRC_SHA256}  src.tar.bz2" | sha256sum -c - \
+ && echo "${NSIS_ZIP_SHA256}  data.zip" | sha256sum -c - \
+ && tar -xjf src.tar.bz2 && unzip -q data.zip \
+ && cd "nsis-${NSIS_VERSION}-src" \
+ && scons -s SKIPSTUBS=all SKIPPLUGINS=all SKIPUTILS=all SKIPMISC=all \
+      NSIS_CONFIG_CONST_DATA_PATH=yes PREFIX=/usr/local VERSION="${NSIS_VERSION}" install-compiler \
+ && mkdir -p /usr/local/share/nsis \
+ && cp -r "../nsis-${NSIS_VERSION}/Stubs" "../nsis-${NSIS_VERSION}/Plugins" \
+          "../nsis-${NSIS_VERSION}/Include" "../nsis-${NSIS_VERSION}/Contrib" /usr/local/share/nsis/ \
+ && /usr/local/bin/makensis -VERSION
+
+# --- build image --------------------------------------------------------------------------
+FROM rust:1.99-bookworm
+
+ARG TAURI_CLI_VERSION=2.12.4
+ARG CARGO_XWIN_VERSION=0.23.1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      # Tauri on Linux (webkit2gtk-4.1) + the CLI's keyring (dbus)
+      libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
+      libxdo-dev libssl-dev libdbus-1-dev pkg-config build-essential \
+      # AppImage bundling (linuxdeploy)
+      file desktop-file-utils xdg-utils squashfs-tools \
+      # Windows cross-compile: clang/lld/llvm for cargo-xwin (llvm-rc builds the icon resource)
+      clang lld llvm \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN rustup target add x86_64-pc-windows-msvc \
+ && cargo install --locked tauri-cli --version "${TAURI_CLI_VERSION}" \
+ && cargo install --locked cargo-xwin --version "${CARGO_XWIN_VERSION}" \
+ && rm -rf /usr/local/cargo/registry /usr/local/cargo/git
+
+COPY --from=nsis /usr/local/bin/makensis /usr/local/bin/makensis
+COPY --from=nsis /usr/local/share/nsis /usr/local/share/nsis
+
+# linuxdeploy is an AppImage itself; Docker has no FUSE, so let it self-extract.
+# NO_STRIP: skip linuxdeploy's bundled (old) strip; the release profile already strips.
+ENV APPIMAGE_EXTRACT_AND_RUN=1 \
+    NO_STRIP=1 \
+    XWIN_CACHE_DIR=/root/.cache/cargo-xwin
