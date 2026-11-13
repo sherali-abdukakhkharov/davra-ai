@@ -10,7 +10,15 @@ use crate::config;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Where install.ps1 / install.sh put the CLI, so every installer replaces
+/// the same copy: `%LOCALAPPDATA%\Davra\bin` on Windows, `~/.davra/bin`
+/// elsewhere (and wherever `DAVRA_HOME` points, for tests).
 pub fn bin_dir() -> Result<PathBuf> {
+    if cfg!(windows) && std::env::var_os("DAVRA_HOME").is_none() {
+        if let Some(local) = dirs::data_local_dir() {
+            return Ok(local.join("Davra").join("bin"));
+        }
+    }
     Ok(config::dir()?.join("bin"))
 }
 
@@ -37,9 +45,19 @@ pub fn version_of(path: &Path) -> Option<String> {
 pub fn install_from(from: &Path) -> Result<PathBuf> {
     let to = cli_path()?;
     std::fs::create_dir_all(to.parent().expect("bin has a parent"))?;
+    // Copies set aside at earlier updates go now, unless they still run.
+    let dir = to.parent().expect("bin has a parent");
+    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let n = e.file_name().to_string_lossy().to_string();
+        if n.starts_with("davra") && n.ends_with(".old") {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
     if to.exists() {
-        let old = to.with_extension("old");
-        let _ = std::fs::remove_file(&old);
+        // A running copy can't be removed, and may itself be an earlier
+        // set-aside one, so every move gets its own name.
+        let stamp = chrono::Utc::now().format("%Y%m%d%H%M%S%3f");
+        let old = dir.join(format!("davra.{stamp}.old"));
         std::fs::rename(&to, &old)
             .with_context(|| format!("moving the old {} aside", to.display()))?;
         let _ = std::fs::remove_file(&old);

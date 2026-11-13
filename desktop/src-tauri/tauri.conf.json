@@ -37,11 +37,18 @@
       "freezePrototype": true
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRCQTMzNjIyMkM1MDA2QkYKUldTL0JsQXNJamFqUzBKMTBSQmYrMzNTdktudkFlRHFCRHdSZ2tIeDZYVEhud1MvcFAzKzNaZ04K",
+      "endpoints": [],
+      "windows": { "installMode": "passive" }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis", "deb", "appimage"],
     "publisher": "Davra",
-    "homepage": "https://github.com/sherali-abdukakhkharov/ai-team",
+    "homepage": "https://github.com/sherali-abdukakhkharov/davra-ai",
     "category": "DeveloperTool",
     "shortDescription": "Davra Desktop",
     "longDescription": "Connect this machine's AI coding agents to your team's Davra hub.",

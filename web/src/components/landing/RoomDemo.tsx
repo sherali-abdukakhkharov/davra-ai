@@ -25,7 +25,7 @@ function useReducedMotion(): boolean {
 export function RoomDemo() {
   const { t } = usePrefs();
   const reduced = useReducedMotion();
-  const [reader, setReader] = useState<Reader>("lionali-ai");
+  const [reader, setReader] = useState<Reader>("frontend-ai");
   const [active, setActive] = useState(0);
   const [hovering, setHovering] = useState(false);
   const [paused, setPaused] = useState(false);

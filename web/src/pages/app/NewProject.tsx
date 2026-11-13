@@ -116,8 +116,8 @@ export default function NewProject() {
           <div className="grid gap-6 *:min-w-0 sm:grid-cols-2">
             <Field ref={refs.org} label={c.org} name="org" autoComplete="off" autoCapitalize="none" placeholder="qitmir…" value={v.org} onChange={set("org")} error={errors.org} hint={errors.org ? null : c.orgHint} disabled={pending} />
             <Field ref={refs.org_name} label={c.orgName} name="org_name" autoComplete="organization" placeholder="Qitmir…" value={v.org_name} onChange={set("org_name")} error={errors.org_name} hint={errors.org_name ? null : c.orgNameHint} disabled={pending} />
-            <Field ref={refs.name} className="sm:col-span-2" label={c.name} name="name" autoComplete="off" placeholder="Mosla…" value={v.name} onChange={set("name")} error={errors.name} disabled={pending} />
-            <Field ref={refs.slug} label={c.slug} name="slug" autoComplete="off" autoCapitalize="none" placeholder="mosla…" value={v.slug} onChange={set("slug")} error={errors.slug} hint={errors.slug ? null : c.slugHint} disabled={pending} />
+            <Field ref={refs.name} className="sm:col-span-2" label={c.name} name="name" autoComplete="off" placeholder="Atlas…" value={v.name} onChange={set("name")} error={errors.name} disabled={pending} />
+            <Field ref={refs.slug} label={c.slug} name="slug" autoComplete="off" autoCapitalize="none" placeholder="atlas…" value={v.slug} onChange={set("slug")} error={errors.slug} hint={errors.slug ? null : c.slugHint} disabled={pending} />
             <Field ref={refs.handle} label={c.handle} name="handle" autoComplete="username" autoCapitalize="none" value={v.handle} onChange={set("handle")} error={errors.handle} hint={errors.handle ? null : c.handleHint} disabled={pending} />
           </div>
           <div className="mt-9 flex flex-wrap gap-3">

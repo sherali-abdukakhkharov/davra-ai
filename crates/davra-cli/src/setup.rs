@@ -30,7 +30,9 @@ pub fn run(client: &str, dry_run: bool, usage: bool) -> Result<()> {
     let client = ClientId::parse(client)?;
     let exe = connect::exe_string(&std::env::current_exe()?);
     let cwd = std::env::current_dir()?;
-    let plan = connect::setup_plan(client, &exe, &cwd, usage)?;
+    let plan = connect::setup_plan(client, &exe, &cwd)?;
+    let repo = davra_core::project_file::find(&cwd)
+        .and_then(|(file, _)| file.parent().map(Path::to_path_buf));
     println!("Davra setup for {}", client.name());
     println!("  davra:    {exe}");
     if plan.is_empty() {
@@ -38,15 +40,19 @@ pub fn run(client: &str, dry_run: bool, usage: bool) -> Result<()> {
     } else {
         print_plan(&plan, dry_run);
     }
-    if client == ClientId::Claude && davra_core::project_file::find(&cwd).is_none() {
-        println!(
+    match (&repo, client) {
+        (None, ClientId::Claude) => println!(
             "\n  Note: {} has no .davra.toml, so Davra stays silent here.\n  \
              Commit one at the repository root (no secrets in it):\n    \
              hub     = \"https://your-hub\"\n    org     = \"your-org\"\n    project = \"your-project\"",
             cwd.display()
-        );
-    } else if client == ClientId::Claude && usage {
-        println!("  Usage reporting sends counts only (tokens, cost, lines, commits). Skip it with --no-usage.");
+        ),
+        (Some(_), ClientId::Claude) if usage => println!(
+            "  Usage: sessions started with `davra claude` here report counts (tokens, cost,\n  \
+             lines, commits; no prompts or code) to the hub. Turn it off with --no-usage."
+        ),
+        (Some(_), ClientId::Claude) => println!("  Usage: off for this repository."),
+        _ => {}
     }
     if dry_run {
         println!("\n--dry-run: nothing changed.");
@@ -55,9 +61,12 @@ pub fn run(client: &str, dry_run: bool, usage: bool) -> Result<()> {
     for b in connect::apply(&plan)? {
         println!("  backup:   {}", b.display());
     }
+    if let (Some(root), ClientId::Claude) = (&repo, client) {
+        connect::set_usage(root, usage)?;
+    }
     if client == ClientId::Claude {
         println!("\nDone. Open a new Claude Code session in a repo with a .davra.toml.");
-        println!("For live messages (they reach the agent even while it waits), start it with:");
+        println!("For live messages and usage reporting, start it with:");
         println!("  davra claude");
     } else {
         println!(
@@ -68,7 +77,7 @@ pub fn run(client: &str, dry_run: bool, usage: bool) -> Result<()> {
     Ok(())
 }
 
-/// Removes what `run` added, including this repository's usage reporting.
+/// Removes what `run` added (and old usage settings in this repository).
 pub fn undo(client: &str) -> Result<()> {
     let client = ClientId::parse(client)?;
     let mut plan = connect::disconnect(client)?;
@@ -77,9 +86,8 @@ pub fn undo(client: &str) -> Result<()> {
         if let Some((file, pf)) = davra_core::project_file::find(&cwd) {
             let root = file.parent().unwrap_or(Path::new("."));
             let hub = crate::config::target(&cwd)?.hub;
-            let exe = connect::exe_string(&std::env::current_exe()?);
-            let usage_off = connect::repo(root, &hub, pf.org.as_deref(), &pf.project, false, &exe)?;
-            plan.steps.extend(usage_off.steps);
+            let tidy = connect::repo(root, &hub, pf.org.as_deref(), &pf.project)?;
+            plan.steps.extend(tidy.steps);
         }
     }
     if plan.is_empty() {

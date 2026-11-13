@@ -410,8 +410,16 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Claude { args } => {
             // Channels are a research preview: a server outside Anthropic's
             // allowlist loads only with this flag, after a one-time prompt.
-            let status = claude_cmd()
-                .args(["--dangerously-load-development-channels", "server:davra"])
+            let mut cmd = claude_cmd();
+            cmd.args(["--dangerously-load-development-channels", "server:davra"]);
+            match usage_settings_file(&cwd, &args) {
+                Ok(Some(path)) => {
+                    cmd.arg("--settings").arg(path);
+                }
+                Ok(None) => {}
+                Err(e) => eprintln!("davra: usage reporting off for this session: {e:#}"),
+            }
+            let status = cmd
                 .args(&args)
                 .env(mcp::CHANNEL_ENV, "1")
                 .status()
@@ -464,4 +472,34 @@ fn claude_cmd() -> std::process::Command {
     } else {
         std::process::Command::new("claude")
     }
+}
+
+/// In a Davra repository with usage on, the telemetry settings for this
+/// session as a file to pass with `--settings`. Claude Code ignores them in
+/// the repository's own .claude/settings*.json, and a file (not inline JSON)
+/// survives cmd.exe quoting on Windows. It holds no secret: the token comes
+/// from the keychain through `davra otel-headers`.
+fn usage_settings_file(cwd: &std::path::Path, args: &[String]) -> Result<Option<PathBuf>> {
+    let Some((file, pf)) = project_file::find(cwd) else {
+        return Ok(None);
+    };
+    let root = file.parent().unwrap_or(cwd);
+    if !davra_cli::connect::usage_on(root) {
+        return Ok(None);
+    }
+    if args
+        .iter()
+        .any(|a| a == "--settings" || a.starts_with("--settings="))
+    {
+        eprintln!("davra: --settings given, so this session does not report usage");
+        return Ok(None);
+    }
+    let hub = config::target(cwd)?.hub;
+    let exe = davra_cli::connect::exe_string(&std::env::current_exe()?);
+    let settings = davra_cli::connect::usage_settings(&exe, &hub, &pf.project);
+    let dir = config::dir()?.join("sessions");
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("usage-{}.json", pf.project));
+    std::fs::write(&path, serde_json::to_string_pretty(&settings)? + "\n")?;
+    Ok(Some(path))
 }

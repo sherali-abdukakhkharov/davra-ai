@@ -22,6 +22,7 @@ pub const LOOP_GUARD: i64 = 4;
 pub fn router(state: AppState) -> Router {
     let web_dir = state.web_dir.clone();
     let downloads_dir = state.downloads_dir.clone();
+    let desktop_dir = state.desktop_dir.clone();
     let api = Router::new()
         .route("/api/v1/auth/register", post(crate::accounts::register))
         .route("/api/v1/auth/login", post(crate::accounts::login))
@@ -31,6 +32,10 @@ pub fn router(state: AppState) -> Router {
         .route("/install.ps1", get(crate::downloads::install_ps1))
         .route("/install.sh", get(crate::downloads::install_sh))
         .route("/.well-known/davra.json", get(well_known))
+        .route(
+            "/api/v1/desktop/update",
+            get(crate::downloads::desktop_update),
+        )
         .route("/api/v1/me", get(me))
         .route("/api/v1/projects/{slug}/brief", get(brief))
         .route("/api/v1/projects/{slug}/inbox", get(inbox))
@@ -139,7 +144,11 @@ pub fn router(state: AppState) -> Router {
                     HeaderValue::from_static("text/plain; charset=utf-8"),
                 ),
             )
-            .nest_service("/downloads", ServeDir::new(dir)),
+            .nest_service("/downloads", no_cache(ServeDir::new(dir))),
+        None => api,
+    };
+    let api = match desktop_dir {
+        Some(dir) => api.nest_service("/desktop", no_cache(ServeDir::new(dir))),
         None => api,
     };
     let app = match web_dir {
@@ -168,6 +177,16 @@ pub fn router(state: AppState) -> Router {
     ))
     .layer(TraceLayer::new_for_http())
     .with_state(state)
+}
+
+/// Downloads change with every build under the same name: a CDN in front of the
+/// hub (Cloudflare caches .exe and friends by extension) must ask every time.
+fn no_cache<S>(svc: S) -> tower_http::set_header::SetResponseHeader<S, HeaderValue> {
+    tower_http::set_header::SetResponseHeader::overriding(
+        svc,
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-cache"),
+    )
 }
 
 async fn api_not_found() -> AppError {

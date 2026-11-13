@@ -42,6 +42,8 @@ pub struct AppState {
     pub public_url: Option<String>,
     /// Prebuilt davra binaries + SHA256SUMS, served under /downloads.
     pub downloads_dir: Option<std::path::PathBuf>,
+    /// Davra Desktop installers + latest.json, served under /desktop.
+    pub desktop_dir: Option<std::path::PathBuf>,
     /// Header carrying the real client IP (set by a trusted proxy). None: the socket peer.
     pub client_ip_header: Option<axum::http::HeaderName>,
     /// Project ids with a new message, for inbox requests that wait.
@@ -69,6 +71,7 @@ impl AppState {
             embedder: None,
             public_url: None,
             downloads_dir: None,
+            desktop_dir: None,
             client_ip_header: None,
             events: live::channel(),
             master_key,
@@ -126,6 +129,9 @@ enum Cmd {
         /// Directory with prebuilt davra binaries and SHA256SUMS.
         #[arg(long, env = "DAVRA_DOWNLOADS_DIR")]
         downloads_dir: Option<std::path::PathBuf>,
+        /// Directory with Davra Desktop installers and latest.json (scripts/build-desktop.sh).
+        #[arg(long, env = "DAVRA_DESKTOP_DIR")]
+        desktop_dir: Option<std::path::PathBuf>,
         /// Local hour (database time zone) after which each project's daily digest is written.
         #[arg(long, env = "DAVRA_DIGEST_HOUR", default_value_t = 19, value_parser = clap::value_parser!(u32).range(0..24))]
         digest_hour: u32,
@@ -366,6 +372,7 @@ async fn main() -> Result<()> {
             embed_model,
             public_url,
             downloads_dir,
+            desktop_dir,
             client_ip_header,
             digest_hour,
         } => {
@@ -442,6 +449,7 @@ async fn main() -> Result<()> {
                 embedder,
                 public_url: public_url.map(|u| u.trim_end_matches('/').to_string()),
                 downloads_dir: downloads_dir.filter(|d| d.join("SHA256SUMS").is_file()),
+                desktop_dir: desktop_dir.filter(|d| d.join("latest.json").is_file()),
                 client_ip_header,
                 events,
                 master_key: master_key.clone(),

@@ -55,7 +55,8 @@ out=$("$HUB" import-telegram mosla "$WORK/result.json")
 has "$out" "0 imported" "re-import is idempotent"
 ok "telegram export import (idempotent)"
 
-"$HUB" serve --bind "127.0.0.1:$PORT" --no-migrate --cookie-secure false --client-ip-header cf-connecting-ip >"$WORK/hub.log" 2>&1 &
+mkdir -p "$WORK/desktop" && echo '{"version":"9.9.9","pub_date":"2026-11-13T00:00:00Z","files":[{"os":"linux","kind":"appimage","name":"Davra_9.9.9_amd64.AppImage","size":6,"sha256":"abc123","signature":"c2lnbmVk"}]}' >"$WORK/desktop/latest.json" && echo setup >"$WORK/desktop/Davra_9.9.9_x64-setup.exe"
+"$HUB" serve --bind "127.0.0.1:$PORT" --no-migrate --desktop-dir "$WORK/desktop" --cookie-secure false --client-ip-header cf-connecting-ip >"$WORK/hub.log" 2>&1 &
 HUB_PID=$!
 trap 'kill $HUB_PID 2>/dev/null || true; rm -rf "$DAVRA_HOME" "$WORK"' EXIT
 for _ in $(seq 1 50); do curl -fs "$DAVRA_HUB/healthz" >/dev/null 2>&1 && break; sleep 0.1; done
@@ -252,6 +253,14 @@ ack_all() { curl -fs -X POST -H "Authorization: Bearer $1" -H 'content-type: app
 say() { curl -fs -X POST -H "Authorization: Bearer $T_LI" -H 'content-type: application/json' \
   -d "{\"text\":\"$1\"}" "$DAVRA_HUB/api/v1/projects/mosla/messages" >/dev/null; }
 ack_all "$T_GAI"
+# Claude Code probes with server/discover at 2026-07-28 (stateless, no session). A channel
+# needs a session, so it must refuse that version and make the client use initialize.
+disc='{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"e2e","version":"0"},"io.modelcontextprotocol/clientCapabilities":{}}}}'
+out=$( (printf '%s\n' "$disc"; sleep 1) | DAVRA_CHANNEL=1 DAVRA_TOKEN="$T_GAI" "$CLI" mcp 2>/dev/null || true )
+has "$out" '"requested":"2026-07-28"' "a channel refuses the stateless protocol"
+hasnt "$out" '"2026-07-28"]' "a channel does not offer the stateless protocol"
+out=$( (printf '%s\n' "$disc"; sleep 1) | DAVRA_TOKEN="$T_GAI" "$CLI" mcp 2>/dev/null || true )
+has "$out" '"supportedVersions"' "without the channel every protocol version is served"
 ch_out=$( (
   printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"e2e","version":"0"}}}'
   sleep 0.5
@@ -275,7 +284,7 @@ say "@gulom-ai one more"
 out=$(printf '{"cwd":"%s","stop_hook_active":true}' "$REPO" | DAVRA_TOKEN="$T_GAI" "$CLI" inbox --hook --stop)
 [ -z "$out" ] || fail "stop hook must let a continued agent rest, got: $out"
 ack_all "$T_GAI"
-ok "davra mcp as a channel pushes new messages live; Stop hook delivers between turns without looping"
+ok "davra mcp as a channel: session protocol only, pushes new messages live; Stop hook delivers between turns without looping"
 
 echo "== ask_owner"
 out=$(mcp "$T_LAI" '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ask_owner","arguments":{"question":"MOS-032 ni main ga merge qilaymi?","options":["Ha, merge qil","Yo'\''q, kut"]}}}')
@@ -472,7 +481,19 @@ out=$(curl -fs "$DAVRA_HUB/install.ps1")
 has "$out" "\$hub = '$DAVRA_HUB'" "install.ps1 points at this hub"
 body=$(WP /api/v1/web/projects/dilnoza-lab/crm/agents/dilnoza-ai/tokens '{"name":"second"}')
 has "$body" "irm $DAVRA_HUB/install.ps1 | iex" "connect commands include the installer"
-ok "one-line installers served by the hub; connect commands include them"
+has "$(curl -fs "$DAVRA_HUB/desktop/latest.json")" '"version":"9.9.9"' "desktop manifest served"
+has "$(curl -fs "$DAVRA_HUB/desktop/Davra_9.9.9_x64-setup.exe")" "setup" "desktop installer served"
+has "$(curl -fsI "$DAVRA_HUB/desktop/Davra_9.9.9_x64-setup.exe")" "cache-control: no-cache" "downloads are not cached by a CDN"
+has "$(curl -fs "$DAVRA_HUB/install.sh")" '?sha=$want' "the installer asks for the binary by its checksum"
+out=$(curl -fs "$DAVRA_HUB/api/v1/desktop/update?target=linux&arch=x86_64&current=0.2.1")
+has "$out" '"version":"9.9.9"' "desktop update offered"
+has "$out" '"signature":"c2lnbmVk"' "update carries its signature"
+has "$out" '/desktop/Davra_9.9.9_amd64.AppImage?sha=abc123' "update URL is fetched by checksum"
+code=$(curl -s -o /dev/null -w '%{http_code}' "$DAVRA_HUB/api/v1/desktop/update?target=linux&arch=x86_64&current=9.9.9")
+[ "$code" = 204 ] || fail "up to date -> $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' "$DAVRA_HUB/api/v1/desktop/update?target=windows&arch=x86_64&current=0.2.1")
+[ "$code" = 204 ] || fail "no signed installer for that platform -> $code"
+ok "one-line installers and Davra Desktop served by the hub; connect commands include them"
 
 echo "== rename"
 as "$T_LAI" post "@lionali tekshirib ko'ring" --project mosla >/dev/null

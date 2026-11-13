@@ -3,8 +3,8 @@
 //! Binaries come from `DAVRA_DOWNLOADS_DIR` with a `SHA256SUMS` file; the
 //! scripts verify the checksum before installing.
 
-use axum::extract::State;
-use axum::http::{header, HeaderMap, HeaderValue};
+use axum::extract::{Query, State};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 
 use crate::AppState;
@@ -17,13 +17,24 @@ New-Item -ItemType Directory -Force $dir | Out-Null
 $exe = Join-Path $dir 'davra.exe'
 $tmp = "$exe.download"
 Write-Host "Downloading davra from $hub ..."
-Invoke-WebRequest -UseBasicParsing "$hub/downloads/davra-windows-x86_64.exe" -OutFile $tmp
 $r = Invoke-WebRequest -UseBasicParsing "$hub/downloads/SHA256SUMS"
 # Windows PowerShell 5.1 returns bytes for non-text content types.
 $sums = if ($r.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($r.Content) } else { [string]$r.Content }
 $want = ($sums -split "`n" | Where-Object { $_ -match 'davra-windows-x86_64\.exe' } | ForEach-Object { ($_.Trim() -split '\s+')[0] }) | Select-Object -First 1
+if (-not $want) { throw "davra: no checksum for davra-windows-x86_64.exe on $hub" }
+# The checksum in the URL gives every build its own cache key, so a CDN can never serve an older binary.
+Invoke-WebRequest -UseBasicParsing "$hub/downloads/davra-windows-x86_64.exe?sha=$want" -OutFile $tmp
 $got = (Get-FileHash $tmp -Algorithm SHA256).Hash.ToLower()
 if (-not $want -or $got -ne $want.ToLower()) { Remove-Item $tmp -Force; throw "davra: checksum mismatch, not installing" }
+# A running davra (an open `davra claude` or MCP server) can't be overwritten, but it can be
+# renamed: move it aside, and the next session starts the new one.
+# Earlier copies that were still running at the last update go now, if they can.
+Get-ChildItem $dir -Filter 'davra.exe.*.old' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+if (Test-Path $exe) {
+  $aside = "$exe.$([DateTime]::UtcNow.ToString('yyyyMMddHHmmss')).old"
+  Move-Item -Force $exe $aside
+  Remove-Item $aside -Force -ErrorAction SilentlyContinue
+}
 Move-Item -Force $tmp $exe
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if ((($userPath -split ';') | Where-Object { $_ -eq $dir }).Count -eq 0) {
@@ -50,8 +61,10 @@ esac
 dir="$HOME/.davra/bin"
 mkdir -p "$dir"
 echo "Downloading davra from $HUB ..."
-curl -fsSL "$HUB/downloads/$f" -o "$dir/davra.download"
 want=$(curl -fsSL "$HUB/downloads/SHA256SUMS" | awk -v f="$f" '$2 == f { print $1 }')
+[ -n "$want" ] || { echo "davra: no checksum for $f on $HUB" >&2; exit 1; }
+# The checksum in the URL gives every build its own cache key, so a CDN can never serve an older binary.
+curl -fsSL "$HUB/downloads/$f?sha=$want" -o "$dir/davra.download"
 got=$( (sha256sum "$dir/davra.download" 2>/dev/null || shasum -a 256 "$dir/davra.download") | awk '{ print $1 }')
 if [ -z "$want" ] || [ "$want" != "$got" ]; then
   rm -f "$dir/davra.download"; echo "davra: checksum mismatch, not installing" >&2; exit 1
@@ -129,10 +142,97 @@ pub async fn install_sh(State(state): State<AppState>, headers: HeaderMap) -> Re
     script(SH, &hub_url(&state, &headers))
 }
 
+#[derive(serde::Deserialize)]
+pub struct UpdateQuery {
+    target: String,
+    arch: String,
+    current: String,
+}
+
+/// "0.2.10" > "0.2.9"; a pre-release suffix ("-beta.1") is ignored.
+fn newer(candidate: &str, current: &str) -> bool {
+    let parts = |v: &str| -> Vec<u64> {
+        v.split('-')
+            .next()
+            .unwrap_or("")
+            .split('.')
+            .map(|p| p.parse().unwrap_or(0))
+            .collect()
+    };
+    parts(candidate) > parts(current)
+}
+
+/// What Davra Desktop's updater asks the hub it is connected to (Tauri's dynamic
+/// update format): 204 when there is nothing newer for that platform, else the
+/// signed installer to fetch. The signature is checked by the app against the
+/// public key it was built with, so the hub can only offer, never forge.
+pub async fn desktop_update(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<UpdateQuery>,
+) -> Response {
+    let none = || StatusCode::NO_CONTENT.into_response();
+    let Some(dir) = &state.desktop_dir else {
+        return none();
+    };
+    let Some(latest) = tokio::fs::read_to_string(dir.join("latest.json"))
+        .await
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+    else {
+        return none();
+    };
+    let Some(version) = latest["version"].as_str() else {
+        return none();
+    };
+    if !newer(version, &q.current) {
+        return none();
+    }
+    // In-place updates: the NSIS installer on Windows, the AppImage on Linux
+    // (a .deb is updated by installing the new .deb).
+    let kind = match (q.target.as_str(), q.arch.as_str()) {
+        ("windows", "x86_64") => "nsis",
+        ("linux", "x86_64") => "appimage",
+        _ => return none(),
+    };
+    let Some(file) = latest["files"].as_array().and_then(|fs| {
+        fs.iter()
+            .find(|f| f["kind"] == kind && f["signature"].is_string())
+    }) else {
+        return none();
+    };
+    let hub = hub_url(&state, &headers);
+    let mut body = serde_json::json!({
+        "version": version,
+        "notes": format!("Davra Desktop {version}"),
+        "url": format!(
+            "{hub}/desktop/{}?sha={}",
+            file["name"].as_str().unwrap_or_default(),
+            file["sha256"].as_str().unwrap_or_default()
+        ),
+        "signature": file["signature"],
+    });
+    if let Some(d) = latest["pub_date"].as_str() {
+        body["pub_date"] = d.into();
+    }
+    let mut r = axum::Json(body).into_response();
+    r.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    r
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn update_versions_compare_numerically() {
+        assert!(newer("0.2.10", "0.2.9"));
+        assert!(newer("0.3.0", "0.2.99"));
+        assert!(newer("1.0.0", "0.9.0-beta.1"));
+        assert!(!newer("0.2.1", "0.2.1"));
+        assert!(!newer("0.2.0", "0.2.1"));
+    }
     #[test]
     fn scripts_have_the_hub_and_verify_checksums() {
         for s in [PS1, SH] {

@@ -18,11 +18,11 @@ hand work off, and remember everything, without anyone copy-pasting between chat
 ## How it works
 
 ```
- you (Telegram) ─┐                      ┌─ G'ulom (Telegram)
+ you (Telegram) ─┐                      ┌─ Backend (Telegram)
                  └──── @davra_bot ──────┘
                           │ long polling
                     ┌─────▼──────┐
- your agent ─ davra mcp ─▶ davra-hub ◀─ davra mcp ─ G'ulom's agent
+ your agent ─ davra mcp ─▶ davra-hub ◀─ davra mcp ─ Backend's agent
  (token in keychain)  │  Postgres  │   (token in keychain)
                       └────────────┘
 ```
@@ -42,15 +42,15 @@ docker compose -f deploy/docker-compose.yml up -d --build
 
 alias dh='docker compose -f deploy/docker-compose.yml exec hub davra-hub'
 dh org create myteam
-dh project create mosla
-dh member add lionali --kind human --project mosla --role owner --tg-user 123456
-dh member add lionali-ai --kind agent --owner lionali --project mosla
-dh token create lionali-ai --name laptop      # printed once
+dh project create atlas
+dh member add frontend --kind human --project atlas --role owner --tg-user 123456
+dh member add frontend-ai --kind agent --owner frontend --project atlas
+dh token create frontend-ai --name laptop      # printed once
 ```
 
 Telegram: create a bot with @BotFather, set `/setprivacy` → Disable, add it to the project's
-group, send `/id` in the group, then `dh project link-telegram mosla --chat <chat id>`.
-Import older history from a Telegram Desktop export: `dh import-telegram mosla result.json`.
+group, send `/id` in the group, then `dh project link-telegram atlas --chat <chat id>`.
+Import older history from a Telegram Desktop export: `dh import-telegram atlas result.json`.
 
 Public access: set `CF_TUNNEL_TOKEN` and run with `--profile tunnel`; route your hostname to
 `http://hub:8080`.
@@ -75,7 +75,7 @@ Commit a `.davra.toml` to the repository (no secrets) so agents know their proje
 
 ```toml
 hub     = "https://davra.example.uz"
-project = "mosla"
+project = "atlas"
 ```
 
 The `SessionStart` hook runs `davra brief --hook`; `UserPromptSubmit` runs `davra inbox --hook`,
@@ -98,10 +98,10 @@ which adds nothing to the context when there is nothing new.
 
 ### Handoffs and roles
 
-If the repo keeps handoff files (Mosla convention: `docs/memory/handoffs/YYYY-MM-DD-<from>-to-<to>-<ticket>.md`),
+If the repo keeps handoff files (for example `docs/memory/handoffs/YYYY-MM-DD-<from>-to-<to>-<ticket>.md`),
 add `handoffs = "docs/memory/handoffs"` to `.davra.toml`. `davra brief --hook` syncs changed files
 (the first sync imports quietly). Give agents the roles they cover so role-addressed handoffs reach them:
-`davra-hub member roles gulom-ai --set core,auth,db`.
+`davra-hub member roles backend-ai --set core,auth,db`.
 
 ### Semantic search (optional)
 
@@ -112,7 +112,7 @@ Uzbek, Russian and English queries match each other. Without it search stays lex
 
 ### GitHub
 
-`davra-hub project github mosla --repo owner/name --public-url https://davra.example.uz` prints the
+`davra-hub project github atlas --repo owner/name --public-url https://davra.example.uz` prints the
 webhook URL and secret. Pushes, PRs and CI results appear in the room as `[external]` messages;
 every delivery's HMAC signature is checked. Set `DAVRA_MASTER_KEY` (`openssl rand -hex 32`) and the
 hub stores these secrets sealed (ChaCha20-Poly1305); plaintext ones are sealed at the next start.
@@ -133,13 +133,15 @@ and its Telegram group. Quiet days are skipped. Try it first with
 
 ### Agent usage
 
-`davra setup claude`, run inside a repository with a `.davra.toml`, also writes that repository's
-`.claude/settings.local.json` (kept out of git). Claude Code then sends its OpenTelemetry metrics
-(OTLP/HTTP JSON, delta) to `<hub>/otlp/v1/metrics`. The token is not in that file:
-`otelHeadersHelper` runs `davra otel-headers`, which reads it from the keychain. Only counts are
-stored, per member, day and model: cost, tokens, lines added and removed, commits, PRs, edit
-decisions and active time. E-mail, account and session attributes are dropped, and no prompts or
-code are sent. The web app's **Usage** tab shows them. Skip it with `--no-usage`; `--undo` removes it.
+Start Claude Code with `davra claude` in a repository that has a `.davra.toml`, and that session
+sends its OpenTelemetry metrics (OTLP/HTTP JSON, delta) to `<hub>/otlp/v1/metrics`. `davra claude`
+hands the telemetry settings to that one session (`--settings`): Claude Code ignores them in a
+repository's own `.claude/settings*.json`, and nothing goes into your global settings, so other
+repositories report nothing. The token is in no file: `otelHeadersHelper` runs `davra otel-headers`,
+which reads it from the keychain. Only counts are stored, per member, day and model: cost, tokens,
+lines added and removed, commits, PRs, edit decisions and active time. E-mail, account and session
+attributes are dropped, and no prompts or code are sent. The web app's **Usage** tab shows them.
+Turn it off for a repository with `davra setup claude --no-usage` (kept in `~/.davra/config.toml`).
 
 ## Development
 

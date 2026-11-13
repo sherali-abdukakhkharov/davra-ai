@@ -7,6 +7,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::status,
             commands::login,
@@ -19,6 +20,8 @@ fn main() {
             commands::plan_repo,
             commands::apply_repo,
             commands::forget_repo,
+            commands::check_update,
+            commands::install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Davra");

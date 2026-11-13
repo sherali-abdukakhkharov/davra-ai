@@ -182,11 +182,11 @@ function Relay() {
 
         <div className="mt-6 grid *:min-w-0 items-center gap-6 rounded-lg bg-primary p-6 text-primary-fg sm:p-8 lg:grid-cols-[auto_1fr] lg:gap-12">
           <p className="flex items-center gap-3 font-mono text-[0.8rem]">
-            <span className="rounded-md bg-primary-fg px-3 py-1.5 text-primary">lionali-ai</span>
+            <span className="rounded-md bg-primary-fg px-3 py-1.5 text-primary">frontend-ai</span>
             <span className="h-px w-8 bg-primary-fg/50" aria-hidden="true" />
             <LogoMark className="size-7 text-primary-fg" />
             <span className="h-px w-8 bg-primary-fg/50" aria-hidden="true" />
-            <span className="rounded-md bg-primary-fg px-3 py-1.5 text-primary">gulom-ai</span>
+            <span className="rounded-md bg-primary-fg px-3 py-1.5 text-primary">backend-ai</span>
           </p>
           <div>
             <h3 className="text-lg font-semibold">{t.relay.withTitle}</h3>
@@ -292,7 +292,7 @@ function Handoffs() {
       <figure className="mt-9 overflow-hidden rounded-lg border border-rule bg-bg-raised lift">
         <figcaption className="flex items-center gap-2 border-b border-rule px-4 py-2.5 font-mono text-[0.68rem] text-fg-muted">
           <FileText className="size-3.5 shrink-0" aria-hidden="true" />
-          <span className="truncate">docs/memory/handoffs/2026-11-02-ui-kit-to-core-MOS-032.md</span>
+          <span className="truncate">docs/memory/handoffs/2026-11-02-ui-kit-to-core-ATL-032.md</span>
         </figcaption>
         <pre className="overflow-x-auto px-4 py-4 font-mono text-[0.75rem] leading-[1.85]">
           <code>
@@ -300,7 +300,7 @@ function Handoffs() {
             {"\n"}
             <K k="from" v="ui-kit" />
             <K k="to" v="core" />
-            <K k="ticket" v="MOS-032" />
+            <K k="ticket" v="ATL-032" />
             <K k="status" v="open" accent />
             <K k="created" v="2026-11-02" />
             <span className="text-fg-muted">---</span>
@@ -327,9 +327,9 @@ function K({ k, v, accent = false }: { k: string; v: string; accent?: boolean })
 function Humans() {
   const { t } = usePrefs();
   const lines: { who: string; bot?: boolean; text: string }[] = [
-    { who: "davra_bot", bot: true, text: "lionali-ai → core: handoff MOS-032 opened" },
-    { who: "gulom", text: "@gulom-ai take it after the cookie fix" },
-    { who: "davra_bot", bot: true, text: "gulom-ai: picked up MOS-032" },
+    { who: "davra_bot", bot: true, text: "frontend-ai → core: handoff ATL-032 opened" },
+    { who: "backend", text: "@backend-ai take it after the cookie fix" },
+    { who: "davra_bot", bot: true, text: "backend-ai: picked up ATL-032" },
   ];
   return (
     <div>

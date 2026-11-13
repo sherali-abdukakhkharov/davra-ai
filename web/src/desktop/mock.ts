@@ -5,19 +5,19 @@
 
 import type { Applied, Backend, Change, ClientId, Commands, Plan, RepoArgs, Status } from "./bridge";
 
-const BUNDLED = "0.2.0";
-const APP_VERSION = "0.2.0";
+const BUNDLED = "0.2.2";
+const APP_VERSION = "0.2.2";
 const KEY = "davra-desktop-mock";
 
 const windows = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
-const HOME = windows ? "C:\\Users\\lionali" : "/home/lionali";
+const HOME = windows ? "C:\\Users\\frontend" : "/home/frontend";
 const SEP = windows ? "\\" : "/";
 const join = (...parts: string[]) => parts.join(SEP);
 const fwd = (p: string) => p.replace(/\\/g, "/");
 const CLI_PATH = join(HOME, ".davra", "bin", windows ? "davra.exe" : "davra");
 const FOLDERS = windows
-  ? ["D:\\Dev\\ai-team", "D:\\Dev\\digital-edo-api", "D:\\Dev\\point-admin", "D:\\Dev\\mosla"]
-  : ["/home/lionali/dev/ai-team", "/home/lionali/dev/digital-edo-api", "/home/lionali/dev/point-admin", "/home/lionali/dev/mosla"];
+  ? ["D:\\Dev\\ai-team", "D:\\Dev\\digital-edo-api", "D:\\Dev\\point-admin", "D:\\Dev\\atlas"]
+  : ["/home/frontend/dev/ai-team", "/home/frontend/dev/digital-edo-api", "/home/frontend/dev/point-admin", "/home/frontend/dev/atlas"];
 
 type Parts = { mcp: boolean; hooks: boolean };
 type State = {
@@ -62,7 +62,7 @@ function scenario(name: string): State {
       },
       repos: [
         { path: FOLDERS[0]!, project: "ai-team", usage: true, has_file: true },
-        { path: FOLDERS[3]!, project: "mosla", usage: false, has_file: false },
+        { path: FOLDERS[3]!, project: "atlas", usage: false, has_file: false },
       ],
       picks: 1,
     };
@@ -112,13 +112,13 @@ export function createMock(): Backend {
   const me = (): Status["me"] =>
     s.token && !s.revoked && !s.offline
       ? {
-          handle: "lionali-ai",
+          handle: "frontend-ai",
           kind: "agent",
           org: "qitmir",
-          owner: "lionali",
+          owner: "frontend",
           projects: [
             { slug: "ai-team", role: "member" },
-            { slug: "mosla", role: "member" },
+            { slug: "atlas", role: "member" },
             { slug: "point", role: "viewer" },
           ],
         }
@@ -320,42 +320,18 @@ export function createMock(): Backend {
         new_file: false,
       });
     }
-    const settings = join(path, ".claude", "settings.local.json");
-    const had = existing?.usage ?? false;
-    const helper = `${exe()} otel-headers --hub ${s.hub} --project ${project}`;
-    if (usage && (!had || existing?.project !== project)) {
+    // Like the Rust side: usage is a switch in ~/.davra/config.toml, used by `davra claude`.
+    const had = existing ? existing.usage : true;
+    if (usage !== had) {
       changes.push({
-        kind: "file",
-        title: "Report Claude Code usage to the hub",
-        path: settings,
-        diff: [
-          `--- /dev/null`,
-          `+++ ${fwd(settings)}`,
-          "@@ -0,0 +1,11 @@",
-          "+{",
-          '+  "env": {',
-          '+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",',
-          '+    "OTEL_METRICS_EXPORTER": "otlp",',
-          '+    "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL": "http/json",',
-          '+    "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE": "delta",',
-          '+    "OTEL_METRICS_INCLUDE_ACCOUNT_UUID": "false",',
-          `+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "${s.hub}/otlp/v1/metrics"`,
-          "+  },",
-          `+  "otelHeadersHelper": "${helper}"`,
-          "+}",
-        ].join("\n"),
-        new_file: true,
-      });
-      notes.push("settings.local.json is personal and git-ignored by Claude Code. Start a new Claude Code session for usage to show up.");
-    } else if (!usage && had) {
-      changes.push({
-        kind: "file",
-        title: "Stop reporting Claude Code usage",
-        path: settings,
-        diff: [`--- ${fwd(settings)}`, `+++ /dev/null`, "@@ -1,11 +0,0 @@", "-{", '-  "env": {', '-    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",', "-    …", "-  },", `-  "otelHeadersHelper": "${helper}"`, "-}"].join("\n"),
+        kind: "command",
+        title: usage ? "Report Claude Code usage from this repository (counts only, no prompts or code)" : "Stop reporting Claude Code usage from this repository",
+        path: null,
+        diff: `${usage ? "on" : "off"}: usage for ${path} in ~/.davra/config.toml`,
         new_file: false,
       });
     }
+    if (usage) notes.push("Usage is reported by sessions you start with `davra claude` in this repository.");
     return { changes, notes: changes.length ? notes : [] };
   };
 
@@ -415,9 +391,16 @@ export function createMock(): Backend {
       s.repos = s.repos.filter((r) => r.path !== path);
       return status();
     },
+    // ?mock=update (or "update" anywhere in the URL) offers a newer version.
+    check_update: () => (location.search.includes("update") ? { version: "0.2.3", current: APP_VERSION, notes: "Davra Desktop 0.2.3" } : null),
+    install_update: () => {
+      // The real app restarts into the new version; the mock just reloads.
+      setTimeout(() => location.reload(), 600);
+      return null;
+    },
   };
 
-  const DELAY: Partial<Record<keyof Commands, number>> = { login: 700, install_cli: 900, status: 250 };
+  const DELAY: Partial<Record<keyof Commands, number>> = { login: 700, install_cli: 900, status: 250, install_update: 1500 };
 
   return {
     async call(cmd, args) {

@@ -331,7 +331,7 @@ pub fn state(client: ClientId, exe: &str) -> ClientState {
     };
     match client {
         ClientId::Claude => {
-            let mcp = match mcp_registered() {
+            let mcp = match mcp_command() {
                 Ok(m) => m,
                 Err(_) => {
                     return s(
@@ -342,15 +342,22 @@ pub fn state(client: ClientId, exe: &str) -> ClientState {
                     )
                 }
             };
-            let missing = claude_settings_path()
+            let hooks = claude_settings_path()
                 .and_then(|p| parse_json(&p, read_opt(&p)?.as_deref()))
-                .map(|v| HOOKS.iter().filter(|h| !has_davra_hook(&v, h.0)).count())
-                .unwrap_or(HOOKS.len());
-            match (mcp, missing) {
-                (true, 0) => s(true, true, false, "MCP server and hooks"),
+                .map(|v| HOOKS.iter().filter(|h| has_davra_hook(&v, h.0)).count())
+                .unwrap_or(0);
+            let mut plan = Plan::default();
+            if let Err(e) = claude_plan(&mut plan, exe, mcp.as_deref()) {
+                return s(true, false, false, &format!("{e:#}"));
+            }
+            let stale = mcp.as_deref().is_some_and(|c| !same_exe(c, exe))
+                || (hooks == HOOKS.len() && !plan.is_empty());
+            match (mcp.is_some(), hooks) {
+                _ if plan.is_empty() => s(true, true, false, "MCP server and hooks"),
+                _ if stale => s(true, false, true, "set up for another davra; update it"),
                 (true, _) => s(true, false, true, "MCP server; hooks missing"),
-                (false, 0) => s(true, false, true, "hooks; MCP server missing"),
-                (false, _) => s(true, false, false, "not connected"),
+                (false, 0) => s(true, false, false, "not connected"),
+                (false, _) => s(true, false, true, "hooks; MCP server missing"),
             }
         }
         ClientId::Cursor | ClientId::Codex => {
@@ -405,6 +412,29 @@ pub fn merge_hooks(settings: &mut Value, exe: &str) {
     if !settings["hooks"].is_object() {
         settings["hooks"] = json!({});
     }
+    // Davra hooks left pointing at another davra (an older install elsewhere,
+    // or one that is gone) move to this one.
+    for (event, args, _) in HOOKS {
+        let suffix = format!(" {args}");
+        for g in settings["hooks"]
+            .get_mut(event)
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            for h in g["hooks"].as_array_mut().into_iter().flatten() {
+                let stale = h["command"]
+                    .as_str()
+                    .and_then(|c| c.strip_suffix(&suffix))
+                    .is_some_and(|prefix| {
+                        prefix.to_lowercase().contains("davra") && !same_exe(prefix, exe)
+                    });
+                if stale {
+                    h["command"] = json!(format!("{exe} {args}"));
+                }
+            }
+        }
+    }
     for (event, args, timeout) in HOOKS {
         if has_davra_hook(settings, event) {
             continue;
@@ -419,7 +449,7 @@ pub fn merge_hooks(settings: &mut Value, exe: &str) {
 }
 
 pub fn remove_hooks(settings: &mut Value) {
-    if let Some(hooks) = settings["hooks"].as_object_mut() {
+    if let Some(hooks) = settings.get_mut("hooks").and_then(Value::as_object_mut) {
         for (event, _, _) in HOOKS {
             if let Some(groups) = hooks.get_mut(event).and_then(Value::as_array_mut) {
                 groups.retain(|g| {
@@ -449,6 +479,12 @@ pub fn claude_settings_path() -> Result<PathBuf> {
 
 /// Errors when Claude Code is not installed.
 pub fn mcp_registered() -> Result<bool> {
+    Ok(mcp_command()?.is_some())
+}
+
+/// The command Claude Code runs for the davra MCP server; None when it is not
+/// registered. Errors when Claude Code is not installed.
+pub fn mcp_command() -> Result<Option<String>> {
     let out = command("claude")
         .args(["mcp", "get", "davra"])
         .output()
@@ -461,25 +497,65 @@ pub fn mcp_registered() -> Result<bool> {
     {
         bail!("Claude Code (`claude`) was not found on PATH; install it first");
     }
-    Ok(out.status.success())
+    if !out.status.success() {
+        return Ok(None);
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    Ok(Some(
+        text.lines()
+            .find_map(|l| l.trim().strip_prefix("Command:"))
+            .map(|c| c.trim().to_string())
+            .unwrap_or_default(),
+    ))
 }
 
-fn claude_connect(exe: &str) -> Result<Plan> {
-    let mut plan = Plan::default();
-    let registered = mcp_registered()?;
+/// Whether two spellings name the same davra executable.
+pub fn same_exe(a: &str, b: &str) -> bool {
+    let norm = |s: &str| {
+        let s = s.trim().trim_matches('"').replace('\\', "/");
+        if cfg!(windows) {
+            s.to_lowercase()
+        } else {
+            s
+        }
+    };
+    norm(a) == norm(b)
+}
+
+/// Hooks and MCP server for `exe`, given what `claude mcp get davra` reported.
+fn claude_plan(plan: &mut Plan, exe: &str, mcp: Option<&str>) -> Result<()> {
     json_edit(
-        &mut plan,
+        plan,
         "Claude Code hooks: brief at session start, inbox on each prompt and when a turn ends",
         claude_settings_path()?,
         |s| merge_hooks(s, exe),
     )?;
-    if !registered {
-        plan.run(
+    match mcp {
+        None => plan.run(
             "Register the davra MCP server for all projects",
             "claude",
             &["mcp", "add", "--scope", "user", "davra", "--", exe, "mcp"],
-        );
+        ),
+        Some(current) if !same_exe(current, exe) => {
+            plan.run(
+                &format!("Remove the davra MCP server that runs {current}"),
+                "claude",
+                &["mcp", "remove", "--scope", "user", "davra"],
+            );
+            plan.run(
+                "Register it again with this davra",
+                "claude",
+                &["mcp", "add", "--scope", "user", "davra", "--", exe, "mcp"],
+            );
+        }
+        Some(_) => {}
     }
+    Ok(())
+}
+
+fn claude_connect(exe: &str) -> Result<Plan> {
+    let mut plan = Plan::default();
+    claude_plan(&mut plan, exe, mcp_command()?.as_deref())?;
     plan.note("Hooks only speak inside repositories with a .davra.toml.");
     plan.note("For live messages while the agent works, start Claude Code with `davra claude`.");
     Ok(plan)
@@ -542,7 +618,7 @@ fn cursor_disconnect() -> Result<Plan> {
         "Remove the davra MCP server from Cursor",
         cursor_mcp_path()?,
         |s| {
-            if let Some(m) = s["mcpServers"].as_object_mut() {
+            if let Some(m) = s.get_mut("mcpServers").and_then(Value::as_object_mut) {
                 m.remove("davra");
             }
         },
@@ -634,7 +710,7 @@ fn codex_disconnect() -> Result<Plan> {
     Ok(plan)
 }
 
-// ---- Repositories ----------------------------------------------------------
+// ---- Repositories and usage ------------------------------------------------
 
 const USAGE_ENV: [(&str, &str); 5] = [
     ("CLAUDE_CODE_ENABLE_TELEMETRY", "1"),
@@ -644,6 +720,7 @@ const USAGE_ENV: [(&str, &str); 5] = [
     ("OTEL_METRICS_INCLUDE_ACCOUNT_UUID", "false"),
 ];
 const ENDPOINT_ENV: &str = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT";
+/// Where davra 0.2.0 wrote usage settings; Claude Code ignores them there.
 const LOCAL_SETTINGS: &str = ".claude/settings.local.json";
 
 pub fn metrics_endpoint(hub: &str) -> String {
@@ -659,30 +736,21 @@ fn helper_cmd(exe: &str, hub: &str, project: &str) -> String {
     format!("{exe} otel-headers --hub {hub} --project {project}")
 }
 
-pub fn has_usage(settings: &Value, hub: &str) -> bool {
-    settings["env"][ENDPOINT_ENV] == metrics_endpoint(hub).as_str()
-        && settings["otelHeadersHelper"]
-            .as_str()
-            .is_some_and(|c| c.contains("otel-headers"))
-}
-
-/// Claude Code settings that send its metrics (counts only) to the hub; the
-/// token comes from the keychain via `otelHeadersHelper`.
-pub fn merge_usage(settings: &mut Value, exe: &str, hub: &str, project: &str) {
-    if !settings.is_object() {
-        *settings = json!({});
-    }
-    if !settings["env"].is_object() {
-        settings["env"] = json!({});
-    }
+/// The settings `davra claude` hands Claude Code (`--settings <file>`) in a
+/// Davra repository: send its metrics (counts only) to the hub, with the
+/// token read from the keychain by `otelHeadersHelper`. They can't live in
+/// the repository's own .claude/settings*.json: Claude Code ignores telemetry
+/// variables there, so that no repository can send your usage anywhere.
+pub fn usage_settings(exe: &str, hub: &str, project: &str) -> Value {
+    let mut env = serde_json::Map::new();
     for (k, v) in USAGE_ENV {
-        settings["env"][k] = json!(v);
+        env.insert(k.into(), json!(v));
     }
-    settings["env"][ENDPOINT_ENV] = json!(metrics_endpoint(hub));
-    settings["otelHeadersHelper"] = json!(helper_cmd(exe, hub, project));
+    env.insert(ENDPOINT_ENV.into(), json!(metrics_endpoint(hub)));
+    json!({ "env": env, "otelHeadersHelper": helper_cmd(exe, hub, project) })
 }
 
-/// Removes what `merge_usage` added.
+/// Removes the usage settings davra 0.2.0 wrote into settings.local.json.
 pub fn remove_usage(settings: &mut Value) {
     let ours = settings["otelHeadersHelper"]
         .as_str()
@@ -693,7 +761,7 @@ pub fn remove_usage(settings: &mut Value) {
     if let Some(o) = settings.as_object_mut() {
         o.remove("otelHeadersHelper");
     }
-    if let Some(env) = settings["env"].as_object_mut() {
+    if let Some(env) = settings.get_mut("env").and_then(Value::as_object_mut) {
         for (k, _) in USAGE_ENV {
             env.remove(k);
         }
@@ -702,6 +770,31 @@ pub fn remove_usage(settings: &mut Value) {
             settings.as_object_mut().map(|o| o.remove("env"));
         }
     }
+}
+
+fn same_path(a: &Path, b: &Path) -> bool {
+    same_exe(&a.display().to_string(), &b.display().to_string())
+}
+
+/// Whether `davra claude` reports usage in `root` (on unless turned off).
+pub fn usage_on(root: &Path) -> bool {
+    config::Config::load()
+        .map(|c| !c.usage_off.iter().any(|p| same_path(p, root)))
+        .unwrap_or(true)
+}
+
+/// Turns usage reporting for `root` on or off (kept in ~/.davra/config.toml).
+pub fn set_usage(root: &Path, on: bool) -> Result<()> {
+    let mut cfg = config::Config::load()?;
+    let before = cfg.usage_off.len();
+    cfg.usage_off.retain(|p| !same_path(p, root));
+    if !on {
+        cfg.usage_off.push(root.to_path_buf());
+    }
+    if on && cfg.usage_off.len() == before {
+        return Ok(());
+    }
+    cfg.save()
 }
 
 /// A linked repository as Davra Desktop lists it.
@@ -724,46 +817,18 @@ pub fn repo_state(path: &Path, fallback_hub: Option<&str>) -> RepoState {
         .as_ref()
         .and_then(|p| p.hub.clone())
         .or(fallback_hub.map(String::from));
-    let local = path.join(LOCAL_SETTINGS);
-    let usage = hub.as_deref().is_some_and(|h| {
-        read_opt(&local)
-            .ok()
-            .flatten()
-            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-            .is_some_and(|v| has_usage(&v, h))
-    });
     RepoState {
         path: path.to_path_buf(),
         has_file: pf.is_some(),
         project: pf.map(|p| p.project),
         hub,
-        usage,
+        usage: usage_on(path),
     }
 }
 
-/// `git check-ignore` / `git rev-parse` in `root`; None outside git.
-fn git(root: &Path, args: &[&str]) -> Option<std::process::Output> {
-    let mut c = Command::new("git");
-    c.args(args).current_dir(root);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        c.creation_flags(0x0800_0000);
-    }
-    c.output().ok()
-}
-
-/// Links `root` to a project: `.davra.toml` if missing, and (with `usage`)
-/// Claude Code usage reporting in `.claude/settings.local.json`, which is
-/// added to `.git/info/exclude` when git would otherwise track it.
-pub fn repo(
-    root: &Path,
-    hub: &str,
-    org: Option<&str>,
-    project: &str,
-    usage: bool,
-    exe: &str,
-) -> Result<Plan> {
+/// Links `root` to a project: `.davra.toml` if missing. Also removes usage
+/// settings an older davra left in `.claude/settings.local.json`.
+pub fn repo(root: &Path, hub: &str, org: Option<&str>, project: &str) -> Result<Plan> {
     use davra_core::project_file::{ProjectFile, FILE_NAME};
     let mut plan = Plan::default();
     if !root.is_dir() {
@@ -793,60 +858,26 @@ pub fn repo(
         }
     }
     let local = root.join(LOCAL_SETTINGS);
-    json_edit(
-        &mut plan,
-        if usage {
-            "Report Claude Code usage to the hub (counts only, no prompts or code)"
-        } else {
-            "Stop reporting Claude Code usage"
-        },
-        local,
-        |s| {
-            if usage {
-                merge_usage(s, exe, hub, project);
-            } else {
-                remove_usage(s);
-            }
-        },
-    )?;
-    if usage {
-        let ignored = git(root, &["check-ignore", "-q", LOCAL_SETTINGS]).map(|o| o.status.code());
-        if ignored == Some(Some(1)) {
-            if let Some(out) = git(root, &["rev-parse", "--git-path", "info/exclude"]) {
-                let rel = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if !rel.is_empty() {
-                    let p = root.join(rel);
-                    let before = read_opt(&p)?;
-                    let mut after = before.clone().unwrap_or_default();
-                    if !after.is_empty() && !after.ends_with('\n') {
-                        after.push('\n');
-                    }
-                    after.push_str(LOCAL_SETTINGS);
-                    after.push('\n');
-                    plan.write("Keep the local settings out of git", p, before, after);
-                }
-            }
-        }
+    if local.exists() {
+        json_edit(
+            &mut plan,
+            "Remove old usage settings (Claude Code ignores them in a repository)",
+            local,
+            remove_usage,
+        )?;
     }
     Ok(plan)
 }
 
-/// Everything `davra setup claude` does in one plan: the client, plus the
-/// current repository's usage reporting when it has a .davra.toml.
-pub fn setup_plan(client: ClientId, exe: &str, cwd: &Path, usage: bool) -> Result<Plan> {
+/// Everything `davra setup <client>` does in one plan: the client, plus (for
+/// Claude Code) tidying the current repository when it has a .davra.toml.
+pub fn setup_plan(client: ClientId, exe: &str, cwd: &Path) -> Result<Plan> {
     let mut plan = connect(client, exe)?;
-    if client == ClientId::Claude && usage {
+    if client == ClientId::Claude {
         if let Some((file, pf)) = davra_core::project_file::find(cwd) {
             let root = file.parent().map(Path::to_path_buf).unwrap_or_default();
             let hub = config::target(cwd)?.hub;
-            plan.extend(repo(
-                &root,
-                &hub,
-                pf.org.as_deref(),
-                &pf.project,
-                true,
-                exe,
-            )?);
+            plan.extend(repo(&root, &hub, pf.org.as_deref(), &pf.project)?);
         }
     }
     Ok(plan)
@@ -874,25 +905,54 @@ mod tests {
         let once = s.clone();
         merge_hooks(&mut s, "C:/u/.davra/bin/davra.exe");
         assert_eq!(s, once, "idempotent");
+        // A reinstall elsewhere moves Davra's hooks along, and only Davra's.
+        merge_hooks(&mut s, "C:/u/AppData/Local/Davra/bin/davra.exe");
+        assert_eq!(
+            s["hooks"]["Stop"][0]["hooks"][0]["command"],
+            "C:/u/AppData/Local/Davra/bin/davra.exe inbox --hook --stop"
+        );
+        assert_eq!(
+            s["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+            "node brief.mjs"
+        );
+        assert_eq!(s["hooks"]["SessionStart"].as_array().unwrap().len(), 2);
+        assert!(same_exe("C:\\u\\davra.exe", "\"C:/u/davra.exe\""));
+        // Removing from a file that has nothing of ours leaves it exactly as it was
+        // (no `"hooks": null` from indexing a missing key).
+        let mut plain = json!({ "model": "x" });
+        remove_hooks(&mut plain);
+        remove_usage(&mut plain);
+        assert_eq!(plain, json!({ "model": "x" }));
         remove_hooks(&mut s);
         assert_eq!(s["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
         assert!(s["hooks"].get("Stop").is_none());
     }
 
     #[test]
-    fn usage_settings_merge_and_undo() {
-        let original = json!({ "env": { "FOO": "1" }, "permissions": { "allow": [] } });
-        let mut s = original.clone();
-        let hub = "https://davra.example.uz";
-        merge_usage(&mut s, "C:/Program Files/davra.exe", hub, "mosla");
-        assert!(has_usage(&s, hub));
+    fn usage_settings_shape_and_old_ones_removed() {
+        let s = usage_settings(
+            "C:/Program Files/davra.exe",
+            "https://davra.example.uz",
+            "mosla",
+        );
+        assert_eq!(s["env"]["CLAUDE_CODE_ENABLE_TELEMETRY"], "1");
+        assert_eq!(
+            s["env"]["OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"],
+            "https://davra.example.uz/otlp/v1/metrics"
+        );
         assert_eq!(
             s["otelHeadersHelper"],
             "\"C:/Program Files/davra.exe\" otel-headers --hub https://davra.example.uz --project mosla"
         );
-        assert!(!has_usage(&s, "https://other.example"));
-        remove_usage(&mut s);
-        assert_eq!(s, original);
+        // What davra 0.2.0 merged into settings.local.json comes out cleanly.
+        let original = json!({ "env": { "FOO": "1" }, "permissions": { "allow": [] } });
+        let mut local = original.clone();
+        for (k, v) in s["env"].as_object().unwrap() {
+            local["env"][k] = v.clone();
+        }
+        local["otelHeadersHelper"] = s["otelHeadersHelper"].clone();
+        remove_usage(&mut local);
+        assert_eq!(local, original);
     }
 
     #[test]
@@ -924,54 +984,47 @@ mod tests {
     fn plans_apply_with_backups_and_refuse_stale_files() {
         let dir = std::env::temp_dir().join(format!("davra-connect-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(dir.join(".claude")).unwrap();
         std::env::set_var("DAVRA_HOME", dir.join("home"));
-        // A repository plan: new .davra.toml plus usage settings.
-        let plan = repo(&dir, "https://h.example", Some("o"), "mosla", true, "davra").unwrap();
+        // Old usage settings in settings.local.json, next to the person's own.
+        let old = json!({ "permissions": { "allow": ["Bash(ls)"] }, "otelHeadersHelper": "davra otel-headers --hub h --project mosla" });
+        std::fs::write(dir.join(LOCAL_SETTINGS), pretty(&old)).unwrap();
+        let plan = repo(&dir, "https://h.example", Some("o"), "mosla").unwrap();
         let titles: Vec<&str> = plan.steps.iter().map(Step::title).collect();
-        assert!(
-            titles.iter().any(|t| t.contains("Link this repository")),
-            "{titles:?}"
-        );
-        assert!(plan.steps.iter().all(|s| s.is_new_file()));
+        assert_eq!(titles.len(), 2, "{titles:?}");
+        assert!(plan.steps[0].is_new_file());
         assert!(plan.steps[0].diff().contains("+project = \"mosla\""));
-        assert!(apply(&plan).unwrap().is_empty(), "nothing to back up yet");
-        let st = repo_state(&dir, None);
-        assert_eq!(st.project.as_deref(), Some("mosla"));
-        assert!(st.usage && st.has_file);
-        // Linked already: nothing more to do; another project is refused.
-        assert!(
-            repo(&dir, "https://h.example", Some("o"), "mosla", true, "davra")
-                .unwrap()
-                .is_empty()
-        );
-        assert!(repo(&dir, "https://h.example", None, "other", true, "davra").is_err());
-        // Turning usage off edits the existing file, with a backup.
-        let off = repo(
-            &dir,
-            "https://h.example",
-            Some("o"),
-            "mosla",
-            false,
-            "davra",
-        )
-        .unwrap();
-        assert_eq!(off.steps.len(), 1);
+        assert!(plan.steps[1].diff().contains("-  \"otelHeadersHelper\""));
+        // A file changed after the plan was made is refused.
         std::fs::write(dir.join(LOCAL_SETTINGS), "{\"changed\": true}\n").unwrap();
-        assert!(apply(&off)
+        assert!(apply(&plan)
             .unwrap_err()
             .to_string()
             .contains("changed since"));
-        let off = repo(
-            &dir,
-            "https://h.example",
-            Some("o"),
-            "mosla",
-            false,
-            "davra",
-        )
-        .unwrap();
-        assert!(off.is_empty(), "no Davra usage settings left to remove");
+        std::fs::write(dir.join(LOCAL_SETTINGS), pretty(&old)).unwrap();
+        let plan = repo(&dir, "https://h.example", Some("o"), "mosla").unwrap();
+        assert_eq!(
+            apply(&plan).unwrap().len(),
+            1,
+            "settings.local.json backed up"
+        );
+        let left: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join(LOCAL_SETTINGS)).unwrap())
+                .unwrap();
+        assert_eq!(left, json!({ "permissions": { "allow": ["Bash(ls)"] } }));
+        // Linked already: nothing more to do; another project is refused.
+        assert!(repo(&dir, "https://h.example", Some("o"), "mosla")
+            .unwrap()
+            .is_empty());
+        assert!(repo(&dir, "https://h.example", None, "other").is_err());
+        // Usage is on unless turned off for this repository.
+        let st = repo_state(&dir, None);
+        assert_eq!(st.project.as_deref(), Some("mosla"));
+        assert!(st.usage && st.has_file);
+        set_usage(&dir, false).unwrap();
+        assert!(!repo_state(&dir, None).usage);
+        set_usage(&dir, true).unwrap();
+        assert!(repo_state(&dir, None).usage);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

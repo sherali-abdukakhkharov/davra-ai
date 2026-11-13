@@ -1,6 +1,7 @@
 import { Check, Copy, KeyRound, Pencil, Plus, TerminalSquare, TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { CodeBlock } from "@/components/site/CodeBlock";
+import { DesktopDownload } from "@/components/app/DesktopDownload";
 import { Field, SubmitLabel } from "@/components/site/Form";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api";
@@ -415,6 +416,7 @@ function ConnectFlow({ project, agent, onClose, onCreated }: { project: ProjectR
           <p className="mb-2 text-sm font-medium">{a.step2}</p>
           <CodeBlock label={a.connect} lines={created.commands} />
         </div>
+        <DesktopDownload />
         <div>
           <Button onClick={onClose}>{a.done}</Button>
         </div>

@@ -530,7 +530,7 @@ function Empty({ days, onLonger, setUp }: { days: number; onLonger?: () => void;
         {setUp ? null : (
           <>
             <p className="mt-2 text-fg-muted">{u.emptyBody}</p>
-            <CodeBlock className="mt-4" lines={["davra setup claude"]} label={u.codeLabel} />
+            <CodeBlock className="mt-4" lines={["davra claude"]} label={u.codeLabel} />
             <p className="mt-4 text-sm text-fg-muted">{u.emptyHint}</p>
             <p className="mt-4 flex items-start gap-2 text-sm">
               <ShieldCheck className="mt-0.5 size-4 shrink-0 text-accent" aria-hidden="true" />

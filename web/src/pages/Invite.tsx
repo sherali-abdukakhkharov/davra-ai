@@ -11,7 +11,7 @@ import { web, webErrorText, type InviteInfo } from "@/lib/web";
 
 const HANDLE = /^[a-z0-9._-]{1,64}$/;
 
-/** A handle suggestion from a display name: "Gulom Bakirov" -> "gulom". */
+/** A handle suggestion from a display name: "Design Lead" -> "design". */
 function suggest(name: string): string {
   const first = name.trim().split(/\s+/)[0] ?? "";
   return first

@@ -3,10 +3,10 @@ resolver = "2"
 members = ["crates/davra-core", "crates/davra-hub", "crates/davra-cli"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.2"
 edition = "2021"
 license = "Apache-2.0"
-repository = "https://github.com/sherali-abdukakhkharov/ai-team"
+repository = "https://github.com/sherali-abdukakhkharov/davra-ai"
 rust-version = "1.85"
 
 [workspace.dependencies]

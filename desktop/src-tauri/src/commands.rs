@@ -357,22 +357,51 @@ pub async fn apply_disconnect(client: String) -> R<Applied> {
     })
 }
 
-fn repo_plan(path: &Path, project: &str, usage: bool) -> anyhow::Result<Plan> {
+fn repo_plan(path: &Path, project: &str) -> anyhow::Result<Plan> {
     let hub = Config::load()?
         .hub
         .ok_or_else(|| anyhow::anyhow!("connect to a hub first"))?;
-    connect::repo(path, &hub, None, project, usage, &cli_exe()?)
+    connect::repo(path, &hub, None, project)
+}
+
+/// The repository's file changes, plus the usage switch when it changes.
+/// Usage is reported by sessions started with `davra claude` (Claude Code
+/// ignores telemetry settings inside a repository), so the switch lives in
+/// ~/.davra/config.toml, not in the repository.
+fn repo_view(path: &Path, project: &str, usage: bool) -> anyhow::Result<PlanView> {
+    let mut v = view(&repo_plan(path, project)?, usage && !cli_installed());
+    if connect::usage_on(path) != usage {
+        let cfg = config::dir()?.join("config.toml");
+        v.changes.push(Change {
+            kind: "command",
+            title: if usage {
+                "Report Claude Code usage from this repository (counts only, no prompts or code)"
+                    .into()
+            } else {
+                "Stop reporting Claude Code usage from this repository".into()
+            },
+            path: None,
+            diff: format!(
+                "{} usage for {} in {}",
+                if usage { "on:" } else { "off:" },
+                path.display(),
+                cfg.display()
+            ),
+            new_file: false,
+        });
+    }
+    if usage {
+        v.notes.push(
+            "Usage is reported by sessions you start with `davra claude` in this repository."
+                .into(),
+        );
+    }
+    Ok(v)
 }
 
 #[tauri::command]
 pub async fn plan_repo(path: String, project: String, usage: bool) -> R<PlanView> {
-    blocking(move || {
-        Ok(view(
-            &repo_plan(Path::new(&path), &project, usage)?,
-            usage && !cli_installed(),
-        ))
-    })
-    .await
+    blocking(move || repo_view(Path::new(&path), &project, usage)).await
 }
 
 #[tauri::command]
@@ -382,7 +411,8 @@ pub async fn apply_repo(path: String, project: String, usage: bool) -> R<Applied
         if usage && !cli_installed() {
             install_cli_now()?;
         }
-        let b = connect::apply(&repo_plan(&p, &project, usage)?)?;
+        let b = connect::apply(&repo_plan(&p, &project)?)?;
+        connect::set_usage(&p, usage)?;
         let mut cfg = Config::load()?;
         if !cfg.repos.contains(&p) {
             cfg.repos.push(p);
@@ -406,4 +436,65 @@ pub async fn forget_repo(path: String) -> R<Status> {
     })
     .await?;
     build_status().await
+}
+
+// ---- Updates -----------------------------------------------------------------
+
+/// A newer Davra Desktop the hub offers.
+#[derive(Serialize)]
+pub struct UpdateInfo {
+    version: String,
+    current: String,
+    notes: Option<String>,
+}
+
+/// The connected hub decides which version this machine gets: every hub
+/// serves its own builds, so there is no update server baked into the app.
+/// Updates are verified against the public key in tauri.conf.json.
+fn updater(app: &tauri::AppHandle) -> anyhow::Result<Option<tauri_plugin_updater::Updater>> {
+    use tauri_plugin_updater::UpdaterExt;
+    let Some(hub) = Config::load()?.hub else {
+        return Ok(None);
+    };
+    let url = format!(
+        "{}/api/v1/desktop/update?target={{{{target}}}}&arch={{{{arch}}}}&current={{{{current_version}}}}",
+        hub.trim_end_matches('/')
+    );
+    let u = app
+        .updater_builder()
+        .endpoints(vec![tauri::Url::parse(&url)?])?
+        .timeout(Duration::from_secs(30))
+        .build()?;
+    Ok(Some(u))
+}
+
+#[tauri::command]
+pub async fn check_update(app: tauri::AppHandle) -> R<Option<UpdateInfo>> {
+    let Some(u) = updater(&app).map_err(err)? else {
+        return Ok(None);
+    };
+    let found = u.check().await.map_err(|e| e.to_string())?;
+    Ok(found.map(|f| UpdateInfo {
+        version: f.version.clone(),
+        current: f.current_version.clone(),
+        notes: f.body.clone(),
+    }))
+}
+
+/// Downloads, verifies and installs the update, then restarts the app.
+#[tauri::command]
+pub async fn install_update(app: tauri::AppHandle) -> R<()> {
+    let u = updater(&app)
+        .map_err(err)?
+        .ok_or_else(|| "connect to a hub first".to_string())?;
+    let found = u
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "already up to date".to_string())?;
+    found
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    app.restart();
 }
