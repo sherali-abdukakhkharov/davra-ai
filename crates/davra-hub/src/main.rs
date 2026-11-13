@@ -307,9 +307,27 @@ enum TokenCmd {
     },
 }
 
+/// sqlx opens every connection with `TimeZone=UTC`, which overrides the zone
+/// set with `alter database/role … set timezone`. The hub's "today" (usage
+/// days, the daily digest and its hour) is meant to be that configured zone,
+/// so each connection puts it back.
+const RESTORE_TIMEZONE: &str = "select set_config('TimeZone', coalesce(( \
+       select substr(s, position('=' in s) + 1) \
+       from pg_db_role_setting d, unnest(d.setconfig) s \
+       where d.setdatabase in (0, (select oid from pg_database where datname = current_database())) \
+         and d.setrole in (0, (select oid from pg_roles where rolname = session_user)) \
+         and s ilike 'timezone=%' \
+       order by d.setrole desc, d.setdatabase desc limit 1), current_setting('TimeZone')), false)";
+
 async fn connect(url: &str) -> Result<PgPool> {
     PgPoolOptions::new()
         .max_connections(10)
+        .after_connect(|conn, _| {
+            Box::pin(async move {
+                sqlx::query(RESTORE_TIMEZONE).execute(conn).await?;
+                Ok(())
+            })
+        })
         .connect(url)
         .await
         .context("could not connect to Postgres (check DATABASE_URL)")

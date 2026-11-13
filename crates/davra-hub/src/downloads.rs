@@ -11,6 +11,9 @@ use crate::AppState;
 
 const PS1: &str = r#"# Davra client installer for Windows (PowerShell).
 $ErrorActionPreference = 'Stop'
+# Windows PowerShell 5.1 redraws Invoke-WebRequest's progress bar so often that
+# downloads crawl; without it they run at full speed.
+$ProgressPreference = 'SilentlyContinue'
 $hub = '{{HUB}}'
 $dir = Join-Path $env:LOCALAPPDATA 'Davra\bin'
 New-Item -ItemType Directory -Force $dir | Out-Null

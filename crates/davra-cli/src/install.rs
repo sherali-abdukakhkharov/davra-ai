@@ -191,3 +191,26 @@ fn rc_files() -> Vec<(PathBuf, &'static str, bool)> {
         ),
     ]
 }
+
+/// "0.2.10" is newer than "0.2.9"; a pre-release suffix ("-beta.1") is ignored.
+pub fn newer(candidate: &str, current: &str) -> bool {
+    let parts = |v: &str| -> Vec<u64> {
+        v.split('-')
+            .next()
+            .unwrap_or("")
+            .split('.')
+            .map(|p| p.parse().unwrap_or(0))
+            .collect()
+    };
+    parts(candidate) > parts(current)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn versions_compare_numerically() {
+        assert!(super::newer("0.2.10", "0.2.9"));
+        assert!(!super::newer("0.2.2", "0.2.2"));
+        assert!(!super::newer("0.2.1", "0.2.2"));
+    }
+}

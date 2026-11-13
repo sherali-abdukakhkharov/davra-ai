@@ -4,10 +4,11 @@ import { Button } from "@/components/ui/button";
 import { fill, usePrefs } from "@/lib/prefs";
 import { bridge, errorText, type UpdateInfo } from "../bridge";
 
-const EVERY = 6 * 60 * 60 * 1000;
+const EVERY = 60 * 60 * 1000;
+const REFOCUS = 10 * 60 * 1000;
 
 /**
- * Asks the connected hub for a newer Davra Desktop at start and every six hours.
+ * Asks the connected hub for a newer Davra Desktop at start, every hour and on focus.
  * The update is signed; the app verifies it before installing, then restarts.
  * A failed check stays quiet (offline is normal); a failed install is shown.
  */
@@ -20,16 +21,26 @@ export function UpdateBanner() {
 
   useEffect(() => {
     let alive = true;
-    const check = () =>
+    let last = 0;
+    const check = () => {
+      last = Date.now();
       bridge
         .checkUpdate()
         .then((i) => alive && setInfo(i))
         .catch(() => {});
-    void check();
+    };
+    // Coming back to the window also checks, at most every ten minutes, so an
+    // app left open all day still hears about a release soon.
+    const onFocus = () => {
+      if (Date.now() - last > REFOCUS) check();
+    };
+    check();
     const id = window.setInterval(check, EVERY);
+    window.addEventListener("focus", onFocus);
     return () => {
       alive = false;
       window.clearInterval(id);
+      window.removeEventListener("focus", onFocus);
     };
   }, []);
 
