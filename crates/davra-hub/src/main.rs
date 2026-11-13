@@ -45,6 +45,8 @@ pub struct AppState {
     pub events: live::Events,
     /// Seals secrets the hub stores and reads back. None: kept as stored.
     pub master_key: Option<Arc<secrets::MasterKey>>,
+    /// Org-scoped requests run as `davra_app` under row-level security.
+    pub rls: bool,
 }
 
 #[derive(Parser)]
@@ -106,6 +108,8 @@ enum Cmd {
     Migrate,
     /// Show orgs, projects and members.
     Status,
+    /// Prove row-level security isolates orgs (exit code 1 if it does not).
+    RlsCheck,
     #[command(subcommand)]
     Org(OrgCmd),
     #[command(subcommand)]
@@ -360,6 +364,12 @@ async fn main() -> Result<()> {
                 }
                 None => None,
             };
+            let rls = db::rls_available(&pool).await?;
+            if rls {
+                tracing::info!("row-level security on for org-scoped requests");
+            } else {
+                tracing::warn!("row-level security off: role davra_app is missing or not granted to this database user");
+            }
             let events = live::channel();
             tokio::spawn(live::run_listener(pool.clone(), events.clone()));
             let app = api::router(AppState {
@@ -375,6 +385,7 @@ async fn main() -> Result<()> {
                 client_ip_header,
                 events,
                 master_key: master_key.clone(),
+                rls,
             });
             let listener = tokio::net::TcpListener::bind(&bind)
                 .await
@@ -392,6 +403,7 @@ async fn main() -> Result<()> {
             println!("migrations applied");
         }
         Cmd::Status => admin::status(&pool).await?,
+        Cmd::RlsCheck => admin::rls_check(&pool).await?,
         Cmd::Org(OrgCmd::Create { slug, name }) => {
             admin::org_create(&pool, &slug, name.as_deref()).await?
         }

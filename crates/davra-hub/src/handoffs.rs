@@ -76,7 +76,7 @@ pub async fn open_in_project(
 }
 
 pub async fn open_for(
-    pool: &PgPool,
+    pool: impl sqlx::PgExecutor<'_>,
     caller: &Caller,
     p: &Project,
     limit: i64,

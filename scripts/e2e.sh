@@ -487,5 +487,11 @@ out=$("$HUB" member rename gulom ali_9737 --org shaxsiy 2>&1 || true)
 has "$out" "already used" "rename cannot take a used handle"
 ok "rename: handle changes, past mentions follow, collisions refused"
 
+echo "== row-level security"
+grep -q "row-level security on" "$WORK/hub.log" || fail "the hub should report row-level security on"
+out=$("$HUB" rls-check 2>&1) || fail "rls-check: $out"
+has "$out" "row-level security ok" "every org sees only its own rows"
+ok "row-level security: tables with org_id protected, unknown org sees nothing, each org sees only its rows"
+
 echo
 echo "e2e: all $pass checks passed"

@@ -171,7 +171,11 @@ pub async fn caller_by_token_hash(pool: &PgPool, hash: &[u8]) -> Result<Option<C
     }))
 }
 
-pub async fn project_for(pool: &PgPool, caller: &Caller, slug: &str) -> Result<Option<Project>> {
+pub async fn project_for(
+    pool: impl sqlx::PgExecutor<'_>,
+    caller: &Caller,
+    slug: &str,
+) -> Result<Option<Project>> {
     Ok(sqlx::query_as(
         "select p.id, p.org_id, p.slug, p.name, p.tg_chat_id, g.role \
          from projects p join grants g on g.project_id = p.id \
@@ -184,7 +188,10 @@ pub async fn project_for(pool: &PgPool, caller: &Caller, slug: &str) -> Result<O
     .await?)
 }
 
-pub async fn projects_of(pool: &PgPool, caller: &Caller) -> Result<Vec<ProjectRef>> {
+pub async fn projects_of(
+    pool: impl sqlx::PgExecutor<'_>,
+    caller: &Caller,
+) -> Result<Vec<ProjectRef>> {
     let rows: Vec<Project> = sqlx::query_as(
         "select p.id, p.org_id, p.slug, p.name, p.tg_chat_id, g.role \
          from projects p join grants g on g.project_id = p.id \
@@ -196,7 +203,10 @@ pub async fn projects_of(pool: &PgPool, caller: &Caller) -> Result<Vec<ProjectRe
     Ok(rows.iter().map(Project::as_ref).collect())
 }
 
-pub async fn members_of_project(pool: &PgPool, project_id: Uuid) -> Result<Vec<MemberRef>> {
+pub async fn members_of_project(
+    pool: impl sqlx::PgExecutor<'_>,
+    project_id: Uuid,
+) -> Result<Vec<MemberRef>> {
     type Row = (String, String, Option<String>, Option<String>, Vec<String>);
     let rows: Vec<Row> = sqlx::query_as(
         "select m.handle, m.kind, m.display_name, ow.handle, m.roles from grants g \
@@ -218,7 +228,11 @@ pub async fn members_of_project(pool: &PgPool, project_id: Uuid) -> Result<Vec<M
         .collect())
 }
 
-pub async fn recent(pool: &PgPool, project_id: Uuid, limit: i64) -> Result<Vec<MsgRow>> {
+pub async fn recent(
+    pool: impl sqlx::PgExecutor<'_>,
+    project_id: Uuid,
+    limit: i64,
+) -> Result<Vec<MsgRow>> {
     let mut rows: Vec<MsgRow> = sqlx::query_as(&format!(
         "{MSG_SELECT} where m.project_id = $1 order by m.id desc limit $2"
     ))
@@ -249,7 +263,7 @@ pub async fn before(
     Ok(rows)
 }
 
-pub async fn total_messages(pool: &PgPool, project_id: Uuid) -> Result<i64> {
+pub async fn total_messages(pool: impl sqlx::PgExecutor<'_>, project_id: Uuid) -> Result<i64> {
     Ok(
         sqlx::query_scalar("select count(*) from messages where project_id = $1")
             .bind(project_id)
@@ -258,7 +272,11 @@ pub async fn total_messages(pool: &PgPool, project_id: Uuid) -> Result<i64> {
     )
 }
 
-pub async fn cursor(pool: &PgPool, member_id: Uuid, project_id: Uuid) -> Result<i64> {
+pub async fn cursor(
+    pool: impl sqlx::PgExecutor<'_>,
+    member_id: Uuid,
+    project_id: Uuid,
+) -> Result<i64> {
     Ok(
         sqlx::query_scalar("select last_ack from cursors where member_id = $1 and project_id = $2")
             .bind(member_id)
@@ -271,7 +289,7 @@ pub async fn cursor(pool: &PgPool, member_id: Uuid, project_id: Uuid) -> Result<
 
 /// Returns up to `limit` unread addressed messages, and whether more exist.
 pub async fn inbox(
-    pool: &PgPool,
+    pool: impl sqlx::PgExecutor<'_>,
     caller: &Caller,
     project: &Project,
     after: i64,
@@ -294,7 +312,7 @@ pub async fn inbox(
 }
 
 pub async fn unread_count(
-    pool: &PgPool,
+    pool: impl sqlx::PgExecutor<'_>,
     caller: &Caller,
     project: &Project,
     after: i64,
@@ -312,11 +330,16 @@ pub async fn unread_count(
 }
 
 /// Moves the cursor forward (never backwards, never past the last message).
-pub async fn ack(pool: &PgPool, member_id: Uuid, project_id: Uuid, up_to: i64) -> Result<i64> {
+pub async fn ack(
+    c: &mut sqlx::PgConnection,
+    member_id: Uuid,
+    project_id: Uuid,
+    up_to: i64,
+) -> Result<i64> {
     let max: i64 =
         sqlx::query_scalar("select coalesce(max(id), 0) from messages where project_id = $1")
             .bind(project_id)
-            .fetch_one(pool)
+            .fetch_one(&mut *c)
             .await?;
     let target = up_to.clamp(0, max);
     Ok(sqlx::query_scalar(
@@ -327,12 +350,16 @@ pub async fn ack(pool: &PgPool, member_id: Uuid, project_id: Uuid, up_to: i64) -
     .bind(member_id)
     .bind(project_id)
     .bind(target)
-    .fetch_one(pool)
+    .fetch_one(&mut *c)
     .await?)
 }
 
 /// True when the last `n` messages in the project were all written by agents.
-pub async fn last_n_by_agents(pool: &PgPool, project_id: Uuid, n: i64) -> Result<bool> {
+pub async fn last_n_by_agents(
+    pool: impl sqlx::PgExecutor<'_>,
+    project_id: Uuid,
+    n: i64,
+) -> Result<bool> {
     let kinds: Vec<Option<String>> = sqlx::query_scalar(
         "select a.kind from messages m left join members a on a.id = m.author_id \
          where m.project_id = $1 order by m.id desc limit $2",
@@ -361,7 +388,10 @@ pub struct NewMessage {
 }
 
 /// Inserts a message. Returns `None` when a Telegram message was already stored.
-pub async fn insert_message(pool: &PgPool, m: &NewMessage) -> Result<Option<i64>> {
+pub async fn insert_message(
+    pool: impl sqlx::PgExecutor<'_>,
+    m: &NewMessage,
+) -> Result<Option<i64>> {
     Ok(sqlx::query_scalar(
         "insert into messages (org_id, project_id, author_id, author_name, kind, topic, body, reply_to, \
          mentions, source, tg_message_id, tg_thread_id, created_at) \
@@ -408,7 +438,11 @@ pub struct ReplyTarget {
     pub tg_thread_id: Option<i64>,
 }
 
-pub async fn reply_target(pool: &PgPool, project_id: Uuid, id: i64) -> Result<Option<ReplyTarget>> {
+pub async fn reply_target(
+    pool: impl sqlx::PgExecutor<'_>,
+    project_id: Uuid,
+    id: i64,
+) -> Result<Option<ReplyTarget>> {
     type Row = (i64, Option<String>, Option<i64>, Option<i64>);
     let row: Option<Row> = sqlx::query_as(
         "select m.id, a.handle, m.tg_message_id, m.tg_thread_id from messages m \
@@ -449,7 +483,7 @@ pub async fn reply_target_by_tg(
 /// Russian and English alike) fused with trigram similarity for typos and
 /// partial words, using Reciprocal Rank Fusion (k = 60).
 pub async fn search(
-    pool: &PgPool,
+    c: &mut sqlx::PgConnection,
     project_id: Uuid,
     q: &str,
     k: i64,
@@ -477,7 +511,7 @@ pub async fn search(
     .bind(q)
     .bind(k)
     .bind(qvec)
-    .fetch_all(pool)
+    .fetch_all(&mut *c)
     .await?;
     if scored.is_empty() {
         return Ok(vec![]);
@@ -485,7 +519,7 @@ pub async fn search(
     let ids: Vec<i64> = scored.iter().map(|(id, _)| *id).collect();
     let rows: Vec<MsgRow> = sqlx::query_as(&format!("{MSG_SELECT} where m.id = any($1)"))
         .bind(&ids)
-        .fetch_all(pool)
+        .fetch_all(&mut *c)
         .await?;
     let mut out = Vec::with_capacity(rows.len());
     let mut rows: Vec<Option<MsgRow>> = rows.into_iter().map(Some).collect();
@@ -500,7 +534,10 @@ pub async fn search(
     Ok(out)
 }
 
-pub async fn message_project(pool: &PgPool, id: i64) -> Result<Option<(Uuid, String)>> {
+pub async fn message_project(
+    pool: impl sqlx::PgExecutor<'_>,
+    id: i64,
+) -> Result<Option<(Uuid, String)>> {
     Ok(sqlx::query_as(
         "select p.org_id, p.slug from messages m join projects p on p.id = m.project_id where m.id = $1",
     )
@@ -509,7 +546,7 @@ pub async fn message_project(pool: &PgPool, id: i64) -> Result<Option<(Uuid, Str
     .await?)
 }
 
-pub async fn message_by_id(pool: &PgPool, id: i64) -> Result<Option<MsgRow>> {
+pub async fn message_by_id(pool: impl sqlx::PgExecutor<'_>, id: i64) -> Result<Option<MsgRow>> {
     Ok(sqlx::query_as(&format!("{MSG_SELECT} where m.id = $1"))
         .bind(id)
         .fetch_optional(pool)
@@ -517,7 +554,7 @@ pub async fn message_by_id(pool: &PgPool, id: i64) -> Result<Option<MsgRow>> {
 }
 
 pub async fn around(
-    pool: &PgPool,
+    c: &mut sqlx::PgConnection,
     project_id: Uuid,
     id: i64,
     n: i64,
@@ -528,7 +565,7 @@ pub async fn around(
     .bind(project_id)
     .bind(id)
     .bind(n)
-    .fetch_all(pool)
+    .fetch_all(&mut *c)
     .await?;
     before.reverse();
     let after: Vec<MsgRow> = sqlx::query_as(&format!(
@@ -537,7 +574,7 @@ pub async fn around(
     .bind(project_id)
     .bind(id)
     .bind(n)
-    .fetch_all(pool)
+    .fetch_all(&mut *c)
     .await?;
     Ok((before, after))
 }
@@ -677,7 +714,7 @@ pub async fn kv_set(pool: &PgPool, key: &str, value: &str) -> Result<()> {
 }
 
 pub async fn audit(
-    pool: &PgPool,
+    pool: impl sqlx::PgExecutor<'_>,
     org_id: Option<Uuid>,
     actor_id: Option<Uuid>,
     action: &str,
@@ -693,4 +730,35 @@ pub async fn audit(
         .execute(pool)
         .await?;
     Ok(())
+}
+
+/// A transaction that acts for one org. With `rls` it runs as `davra_app`,
+/// for which Postgres row-level security hides every other org's rows; the
+/// org is set either way, so policies and triggers can rely on it.
+pub async fn scoped(
+    pool: &PgPool,
+    rls: bool,
+    org: Uuid,
+) -> Result<sqlx::Transaction<'static, sqlx::Postgres>> {
+    let mut tx = pool.begin().await?;
+    let sql = if rls {
+        "select set_config('role', 'davra_app', true), set_config('davra.org', $1, true)"
+    } else {
+        "select set_config('davra.org', $1, true)"
+    };
+    sqlx::query(sql)
+        .bind(org.to_string())
+        .execute(&mut *tx)
+        .await?;
+    Ok(tx)
+}
+
+/// Whether this database user can switch to the RLS-bound role (migration 0011).
+pub async fn rls_available(pool: &PgPool) -> Result<bool> {
+    Ok(sqlx::query_scalar(
+        "select case when exists (select 1 from pg_roles where rolname = 'davra_app') \
+         then pg_has_role(current_user, 'davra_app', 'MEMBER') else false end",
+    )
+    .fetch_one(pool)
+    .await?)
 }

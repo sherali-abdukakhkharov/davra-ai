@@ -453,3 +453,113 @@ pub async fn status(pool: &PgPool) -> Result<()> {
     }
     Ok(())
 }
+
+/// Checks that row-level security really isolates orgs:
+/// every table with an org_id has RLS on, an unknown org sees nothing, and
+/// each real org sees exactly its own rows.
+pub async fn rls_check(pool: &PgPool) -> Result<()> {
+    if !db::rls_available(pool).await? {
+        bail!("row-level security is off: role davra_app is missing or not granted");
+    }
+    let unprotected: Vec<String> = sqlx::query_scalar(
+        "select c.relname::text from pg_class c join pg_namespace n on n.oid = c.relnamespace \
+         where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity \
+         and exists (select 1 from pg_attribute a where a.attrelid = c.oid and a.attname = 'org_id' and not a.attisdropped) \
+         order by 1",
+    )
+    .fetch_all(pool)
+    .await?;
+    if !unprotected.is_empty() {
+        bail!(
+            "tables with org_id but no row-level security: {}",
+            unprotected.join(", ")
+        );
+    }
+    const TABLES: [&str; 10] = [
+        "projects",
+        "members",
+        "messages",
+        "handoffs",
+        "questions",
+        "audit_log",
+        "grants",
+        "invites",
+        "tokens",
+        "cursors",
+    ];
+    let count_all = |org: Uuid| async move {
+        let mut tx = db::scoped(pool, true, org).await?;
+        let mut seen = Vec::new();
+        for t in TABLES {
+            let n: i64 = sqlx::query_scalar(&format!("select count(*) from {t}"))
+                .fetch_one(&mut *tx)
+                .await?;
+            seen.push(n);
+        }
+        // A write into another org must be refused too.
+        let other: Option<Uuid> = sqlx::query_scalar("select id from orgs where id <> $1 limit 1")
+            .bind(org)
+            .fetch_optional(pool)
+            .await?;
+        if let Some(other) = other {
+            sqlx::query("savepoint w").execute(&mut *tx).await?;
+            let wrote =
+                sqlx::query("insert into audit_log (org_id, action) values ($1, 'rls-check')")
+                    .bind(other)
+                    .execute(&mut *tx)
+                    .await
+                    .is_ok();
+            if wrote {
+                bail!("davra_app could write a row for another org");
+            }
+            sqlx::query("rollback to savepoint w")
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.rollback().await?;
+        anyhow::Ok(seen)
+    };
+    let nobody = count_all(Uuid::new_v4()).await?;
+    if nobody.iter().any(|&n| n > 0) {
+        bail!(
+            "an unknown org sees rows: {:?}",
+            TABLES.iter().zip(&nobody).collect::<Vec<_>>()
+        );
+    }
+    let orgs: Vec<(Uuid, String)> = sqlx::query_as("select id, slug from orgs order by slug")
+        .fetch_all(pool)
+        .await?;
+    for (org, slug) in &orgs {
+        let seen = count_all(*org).await?;
+        let own: Vec<i64> = {
+            let mut v = Vec::new();
+            for t in TABLES {
+                let sql = match t {
+                    "grants" | "invites" => format!(
+                        "select count(*) from {t} x join projects p on p.id = x.project_id where p.org_id = $1"
+                    ),
+                    "tokens" | "cursors" => format!(
+                        "select count(*) from {t} x join members m on m.id = x.member_id where m.org_id = $1"
+                    ),
+                    _ => format!("select count(*) from {t} where org_id = $1"),
+                };
+                v.push(sqlx::query_scalar(&sql).bind(org).fetch_one(pool).await?);
+            }
+            v
+        };
+        if seen != own {
+            bail!(
+                "org {slug}: row-level security shows {:?} but the org owns {:?} (tables {:?})",
+                seen,
+                own,
+                TABLES
+            );
+        }
+    }
+    println!(
+        "row-level security ok: {} tables isolated across {} org(s)",
+        TABLES.len(),
+        orgs.len()
+    );
+    Ok(())
+}

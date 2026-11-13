@@ -188,16 +188,37 @@ async fn well_known(State(state): State<AppState>) -> Json<WellKnown> {
 }
 
 pub async fn project(state: &AppState, caller: &Caller, slug: &str) -> AppResult<Project> {
-    db::project_for(&state.pool, caller, slug)
+    project_in(&state.pool, caller, slug).await
+}
+
+/// [`project`] on a given connection, e.g. an org-scoped transaction.
+pub async fn project_in(
+    db: impl sqlx::PgExecutor<'_>,
+    caller: &Caller,
+    slug: &str,
+) -> AppResult<Project> {
+    db::project_for(db, caller, slug)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("project '{slug}' not found or not granted")))
 }
 
+/// A transaction that only sees `caller`'s org: Postgres row-level security
+/// backs up the org checks in the queries.
+pub async fn scoped(
+    state: &AppState,
+    caller: &Caller,
+) -> AppResult<sqlx::Transaction<'static, sqlx::Postgres>> {
+    Ok(db::scoped(&state.pool, state.rls, caller.org_id).await?)
+}
+
 async fn me(State(state): State<AppState>, caller: Caller) -> AppResult<Json<Me>> {
+    let mut tx = scoped(&state, &caller).await?;
+    let projects = db::projects_of(&mut *tx, &caller).await?;
+    tx.commit().await?;
     Ok(Json(Me {
         org: caller.org_slug.clone(),
         member: caller.member_ref(),
-        projects: db::projects_of(&state.pool, &caller).await?,
+        projects,
     }))
 }
 
@@ -206,21 +227,26 @@ async fn brief(
     caller: Caller,
     Path(slug): Path<String>,
 ) -> AppResult<Json<Brief>> {
-    let p = project(&state, &caller, &slug).await?;
+    let mut tx = scoped(&state, &caller).await?;
+    let p = project_in(&mut *tx, &caller, &slug).await?;
     let reader = caller.reader();
-    let cursor = db::cursor(&state.pool, caller.member_id, p.id).await?;
-    let (inbox, _) = db::inbox(&state.pool, &caller, &p, cursor, 10).await?;
-    let unread = db::unread_count(&state.pool, &caller, &p, cursor).await?;
-    let recent = db::recent(&state.pool, p.id, 15).await?;
+    let cursor = db::cursor(&mut *tx, caller.member_id, p.id).await?;
+    let (inbox, _) = db::inbox(&mut *tx, &caller, &p, cursor, 10).await?;
+    let unread = db::unread_count(&mut *tx, &caller, &p, cursor).await?;
+    let recent = db::recent(&mut *tx, p.id, 15).await?;
+    let members = db::members_of_project(&mut *tx, p.id).await?;
+    let total_messages = db::total_messages(&mut *tx, p.id).await?;
+    let handoffs = crate::handoffs::open_for(&mut *tx, &caller, &p, 10).await?;
+    tx.commit().await?;
     Ok(Json(Brief {
         project: p.as_ref(),
         me: caller.member_ref(),
-        members: db::members_of_project(&state.pool, p.id).await?,
+        members,
         inbox: inbox.into_iter().map(|m| m.view(&reader)).collect(),
         unread,
         recent: recent.into_iter().map(|m| m.view(&reader)).collect(),
-        total_messages: db::total_messages(&state.pool, p.id).await?,
-        handoffs: crate::handoffs::open_for(&state.pool, &caller, &p, 10).await?,
+        total_messages,
+        handoffs,
     }))
 }
 
@@ -237,15 +263,20 @@ async fn inbox(
     Path(slug): Path<String>,
     Query(q): Query<InboxQuery>,
 ) -> AppResult<Json<Inbox>> {
-    let p = project(&state, &caller, &slug).await?;
+    let mut tx = scoped(&state, &caller).await?;
+    let p = project_in(&mut *tx, &caller, &slug).await?;
+    tx.commit().await?;
     let limit = q.limit.unwrap_or(20).clamp(1, 100);
     let wait = std::time::Duration::from_secs(q.wait.unwrap_or(0)).min(crate::live::MAX_WAIT);
     let deadline = tokio::time::Instant::now() + wait;
     // Subscribe before the first query so a message stored in between still wakes us.
     let mut rx = state.events.subscribe();
     let (cursor, rows, more) = loop {
-        let cursor = db::cursor(&state.pool, caller.member_id, p.id).await?;
-        let (rows, more) = db::inbox(&state.pool, &caller, &p, cursor, limit).await?;
+        // A fresh short transaction per check: no connection is held while waiting.
+        let mut tx = scoped(&state, &caller).await?;
+        let cursor = db::cursor(&mut *tx, caller.member_id, p.id).await?;
+        let (rows, more) = db::inbox(&mut *tx, &caller, &p, cursor, limit).await?;
+        tx.commit().await?;
         if !rows.is_empty() || !crate::live::wait_for(&mut rx, p.id, deadline).await {
             break (cursor, rows, more);
         }
@@ -265,8 +296,10 @@ async fn ack(
     Path(slug): Path<String>,
     Json(req): Json<AckRequest>,
 ) -> AppResult<Json<AckResponse>> {
-    let p = project(&state, &caller, &slug).await?;
-    let cursor = db::ack(&state.pool, caller.member_id, p.id, req.up_to).await?;
+    let mut tx = scoped(&state, &caller).await?;
+    let p = project_in(&mut *tx, &caller, &slug).await?;
+    let cursor = db::ack(&mut tx, caller.member_id, p.id, req.up_to).await?;
+    tx.commit().await?;
     Ok(Json(AckResponse { cursor }))
 }
 
@@ -299,22 +332,17 @@ pub async fn post_as(
             "text is longer than {MAX_POST_CHARS} characters"
         )));
     }
-    if caller.kind == MemberKind::Agent
-        && db::last_n_by_agents(&state.pool, p.id, LOOP_GUARD).await?
-    {
+    let mut tx = scoped(state, caller).await?;
+    if caller.kind == MemberKind::Agent && db::last_n_by_agents(&mut *tx, p.id, LOOP_GUARD).await? {
         return Err(AppError::TooMany(format!(
             "the last {LOOP_GUARD} messages are all from agents; wait for a human to reply"
         )));
     }
 
     let reply = match req.reply_to {
-        Some(id) => Some(
-            db::reply_target(&state.pool, p.id, id)
-                .await?
-                .ok_or_else(|| {
-                    AppError::BadRequest(format!("reply_to #{id} is not in this project"))
-                })?,
-        ),
+        Some(id) => Some(db::reply_target(&mut *tx, p.id, id).await?.ok_or_else(|| {
+            AppError::BadRequest(format!("reply_to #{id} is not in this project"))
+        })?),
         None => None,
     };
 
@@ -332,7 +360,7 @@ pub async fn post_as(
     }
 
     let id = db::insert_message(
-        &state.pool,
+        &mut *tx,
         &NewMessage {
             org_id: p.org_id,
             project_id: p.id,
@@ -353,7 +381,8 @@ pub async fn post_as(
     .ok_or_else(|| AppError::Internal(anyhow::anyhow!("insert returned no id")))?;
 
     // The author has obviously seen everything up to their own message.
-    db::ack(&state.pool, caller.member_id, p.id, id).await?;
+    db::ack(&mut tx, caller.member_id, p.id, id).await?;
+    tx.commit().await?;
 
     let icon = if caller.kind == MemberKind::Agent {
         "🤖"
@@ -422,7 +451,8 @@ async fn search(
     Path(slug): Path<String>,
     Query(q): Query<SearchQuery>,
 ) -> AppResult<Json<SearchResults>> {
-    let p = project(&state, &caller, &slug).await?;
+    let mut tx = scoped(&state, &caller).await?;
+    let p = project_in(&mut *tx, &caller, &slug).await?;
     let query = q.q.trim();
     if query.is_empty() {
         return Err(AppError::BadRequest("q is empty".into()));
@@ -444,7 +474,7 @@ async fn search(
         },
         None => None,
     };
-    let hits = db::search(&state.pool, p.id, query, k, qvec.as_deref())
+    let hits = db::search(&mut tx, p.id, query, k, qvec.as_deref())
         .await?
         .into_iter()
         .map(|(row, score)| {
@@ -460,7 +490,7 @@ async fn search(
         })
         .collect();
     db::audit(
-        &state.pool,
+        &mut *tx,
         Some(caller.org_id),
         Some(caller.member_id),
         "search",
@@ -468,6 +498,7 @@ async fn search(
         serde_json::json!({ "chars": query.chars().count() }),
     )
     .await?;
+    tx.commit().await?;
     Ok(Json(SearchResults {
         project: p.slug,
         query: query.to_string(),
@@ -487,22 +518,24 @@ async fn get_message(
     Query(q): Query<ContextQuery>,
 ) -> AppResult<Json<MessageContext>> {
     let not_found = || AppError::NotFound(format!("message #{id} not found"));
-    let (org_id, slug) = db::message_project(&state.pool, id)
+    let mut tx = scoped(&state, &caller).await?;
+    let (org_id, slug) = db::message_project(&mut *tx, id)
         .await?
         .ok_or_else(not_found)?;
     if org_id != caller.org_id {
         return Err(not_found());
     }
     // Same answer for "does not exist" and "not yours", so ids leak nothing.
-    let p = db::project_for(&state.pool, &caller, &slug)
+    let p = db::project_for(&mut *tx, &caller, &slug)
         .await?
         .ok_or_else(not_found)?;
     let n = q.context.unwrap_or(3).clamp(0, 10);
     let reader = caller.reader();
-    let message = db::message_by_id(&state.pool, id)
+    let message = db::message_by_id(&mut *tx, id)
         .await?
         .ok_or_else(not_found)?;
-    let (before, after) = db::around(&state.pool, p.id, id, n).await?;
+    let (before, after) = db::around(&mut tx, p.id, id, n).await?;
+    tx.commit().await?;
     Ok(Json(MessageContext {
         project: p.slug,
         before: before.into_iter().map(|m| m.view(&reader)).collect(),

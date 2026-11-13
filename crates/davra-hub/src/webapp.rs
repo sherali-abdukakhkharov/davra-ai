@@ -474,7 +474,7 @@ pub async fn search(
     };
     let reader = caller.reader();
     let hits = db::search(
-        &state.pool,
+        &mut *state.pool.acquire().await?,
         p.id,
         query,
         q.k.unwrap_or(10).clamp(1, 20),
