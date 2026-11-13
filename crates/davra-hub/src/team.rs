@@ -393,13 +393,13 @@ pub async fn accept_invite(
         .bind(user.id)
         .fetch_one(&mut *tx)
         .await?;
-    let (member_id, handle) = match (mine, target) {
+    let (member_id, handle, claimed) = match (mine, target) {
         (Some((m, h)), Some(t)) if m != t => {
             return Err(AppError::BadRequest(format!(
                 "you are already @{h} in {org}; ask for an invite that isn't for another person"
             )))
         }
-        (Some(mh), _) => mh,
+        (Some((m, h)), _) => (m, h, false),
         (None, Some(t)) => {
             let claimed: Option<String> = sqlx::query_scalar(
                 "update members set user_id = $2 where id = $1 and user_id is null returning handle",
@@ -421,7 +421,7 @@ pub async fn accept_invite(
                 .execute(&mut *tx)
                 .await?;
             }
-            (t, h)
+            (t, h, true)
         }
         (None, None) => {
             // A Telegram username known from another org is the best handle.
@@ -465,7 +465,7 @@ pub async fn accept_invite(
             let id = id.ok_or_else(|| {
                 AppError::FieldConflict("handle", format!("@{handle} is taken in {org}"))
             })?;
-            (id, handle)
+            (id, handle, false)
         }
     };
 
@@ -486,7 +486,8 @@ pub async fn accept_invite(
                 .await?;
             false
         }
-        Some(_) => true,
+        // Claiming a CLI member that already had this role is still a join.
+        Some(_) => !claimed,
         None => {
             sqlx::query("insert into grants (member_id, project_id, role) values ($1, $2, $3)")
                 .bind(member_id)

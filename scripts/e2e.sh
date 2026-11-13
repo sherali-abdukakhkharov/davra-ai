@@ -380,6 +380,16 @@ body=$(curl -s -b "$SJ" "$DAVRA_HUB/api/v1/web/projects/dilnoza-lab/crm")
 has "$body" '"role":"maintainer"' "the hand-over sets the invited role"
 body=$(WP /api/v1/web/projects/dilnoza-lab/crm/invites '{"role":"member","member":"sardor"}')
 has "$body" "already has a Davra account" "no hand-over of a member with an account"
+# Same role as the CLI gave: still a join, the link is spent and the room hears it.
+"$HUB" member add aziz --kind human --org dilnoza-lab --project crm --role maintainer >/dev/null
+body=$(WP /api/v1/web/projects/dilnoza-lab/crm/invites '{"role":"maintainer","member":"aziz"}')
+INV4=$(code_of "$body")
+AJ="$WORK/aziz.txt"
+curl -s -c "$AJ" "${J[@]}" "${CSRF[@]}" "${IP2[@]}" -d '{"name":"Aziz","email":"aziz@qitmir.uz","password":"aziz-password"}' "$DAVRA_HUB/api/v1/auth/register" >/dev/null
+body=$(curl -s -b "$AJ" "${J[@]}" "${CSRF[@]}" -X POST "$DAVRA_HUB/api/v1/web/invites/$INV4/accept")
+has "$body" '"already":false' "same-role hand-over counts as a join"
+has "$(curl -s "$DAVRA_HUB/api/v1/web/invites/$INV4")" '"status":"used"' "same-role hand-over spends the link"
+has "$(curl -s -b "$AJ" "$DAVRA_HUB/api/v1/web/projects/dilnoza-lab/crm")" '@aziz joined the project as maintainer.' "same-role hand-over is announced"
 # Revoke.
 body=$(WP /api/v1/web/projects/dilnoza-lab/crm/invites '{"role":"viewer"}')
 INV3=$(code_of "$body")
