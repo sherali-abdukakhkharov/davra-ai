@@ -246,7 +246,7 @@ pub async fn recent(
 
 /// Up to `limit` messages older than `before`, oldest first.
 pub async fn before(
-    pool: &PgPool,
+    pool: impl sqlx::PgExecutor<'_>,
     project_id: Uuid,
     before: i64,
     limit: i64,

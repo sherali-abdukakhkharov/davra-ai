@@ -14,7 +14,7 @@ use serde::Deserialize;
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
-use crate::api::{project, relay};
+use crate::api::{project_in, relay, scoped};
 use crate::db::{self, Caller, NewMessage, Project};
 use crate::error::{AppError, AppResult};
 use crate::AppState;
@@ -61,7 +61,7 @@ const SELECT: &str =
     source_hash, created_at, done_at, message_id from handoffs";
 
 pub async fn open_in_project(
-    pool: &PgPool,
+    pool: impl sqlx::PgExecutor<'_>,
     project_id: Uuid,
     limit: i64,
 ) -> Result<Vec<HandoffView>> {
@@ -282,7 +282,7 @@ struct Insert<'a> {
     created_at: Option<DateTime<Utc>>,
 }
 
-async fn insert(pool: &PgPool, i: Insert<'_>) -> Result<HandoffView> {
+async fn insert(pool: impl sqlx::PgExecutor<'_>, i: Insert<'_>) -> Result<HandoffView> {
     let row: Row = sqlx::query_as(
         "insert into handoffs (org_id, project_id, ticket, from_label, to_labels, status, body, done_note, \
          source_path, source_hash, author_id, created_at, done_at) \
@@ -334,7 +334,8 @@ pub async fn create(
     Path(slug): Path<String>,
     Json(req): Json<HandoffCreate>,
 ) -> AppResult<Json<HandoffView>> {
-    let p = project(&state, &caller, &slug).await?;
+    let mut tx = scoped(&state, &caller).await?;
+    let p = project_in(&mut *tx, &caller, &slug).await?;
     writable(&p)?;
     let to = clean_labels(&req.to);
     if to.is_empty() {
@@ -348,7 +349,7 @@ pub async fn create(
         .and_then(normalize_handle)
         .unwrap_or_else(|| default_from(&caller));
     let h = insert(
-        &state.pool,
+        &mut *tx,
         Insert {
             p: &p,
             author: Some(&caller),
@@ -364,6 +365,7 @@ pub async fn create(
         },
     )
     .await?;
+    tx.commit().await?;
     let mid = announce_new(&state, &p, Some(&caller), &h).await?;
     Ok(Json(HandoffView {
         message_id: Some(mid),
@@ -385,7 +387,8 @@ pub async fn list(
     Path(slug): Path<String>,
     Query(q): Query<ListQuery>,
 ) -> AppResult<Json<HandoffList>> {
-    let p = project(&state, &caller, &slug).await?;
+    let mut tx = scoped(&state, &caller).await?;
+    let p = project_in(&mut *tx, &caller, &slug).await?;
     let status = q.status.unwrap_or_else(|| "open".into());
     let all_status = status == "all";
     let all_scope = q.scope.as_deref() == Some("all");
@@ -400,32 +403,33 @@ pub async fn list(
     .bind(all_scope)
     .bind(caller.labels())
     .bind(limit)
-    .fetch_all(&state.pool)
+    .fetch_all(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok(Json(HandoffList {
         project: p.slug,
         handoffs: rows.into_iter().map(Row::view).collect(),
     }))
 }
 
-async fn load(state: &AppState, caller: &Caller, id: i64) -> AppResult<(Project, Row)> {
+async fn load(tx: &mut sqlx::PgConnection, caller: &Caller, id: i64) -> AppResult<(Project, Row)> {
     let not_found = || AppError::NotFound(format!("handoff #{id} not found"));
     let found: Option<(Uuid, String)> = sqlx::query_as(
         "select p.org_id, p.slug from handoffs h join projects p on p.id = h.project_id where h.id = $1",
     )
     .bind(id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&mut *tx)
     .await?;
     let (org, slug) = found.ok_or_else(not_found)?;
     if org != caller.org_id {
         return Err(not_found());
     }
-    let p = db::project_for(&state.pool, caller, &slug)
+    let p = db::project_for(&mut *tx, caller, &slug)
         .await?
         .ok_or_else(not_found)?;
     let row: Row = sqlx::query_as(&format!("{SELECT} where id = $1"))
         .bind(id)
-        .fetch_one(&state.pool)
+        .fetch_one(&mut *tx)
         .await?;
     Ok((p, row))
 }
@@ -435,7 +439,9 @@ pub async fn get_one(
     caller: Caller,
     Path(id): Path<i64>,
 ) -> AppResult<Json<HandoffView>> {
-    let (_, row) = load(&state, &caller, id).await?;
+    let mut tx = scoped(&state, &caller).await?;
+    let (_, row) = load(&mut tx, &caller, id).await?;
+    tx.commit().await?;
     Ok(Json(row.view()))
 }
 
@@ -445,7 +451,8 @@ pub async fn done(
     Path(id): Path<i64>,
     Json(req): Json<HandoffDone>,
 ) -> AppResult<Json<HandoffView>> {
-    let (p, row) = load(&state, &caller, id).await?;
+    let mut tx = scoped(&state, &caller).await?;
+    let (p, row) = load(&mut tx, &caller, id).await?;
     writable(&p)?;
     if row.status == "done" {
         return Ok(Json(row.view()));
@@ -459,8 +466,9 @@ pub async fn done(
     .bind(id)
     .bind(if note.is_empty() { None } else { Some(note) })
     .bind(caller.member_id)
-    .fetch_one(&state.pool)
+    .fetch_one(&mut *tx)
     .await?;
+    tx.commit().await?;
     let h = row.view();
     announce_done(&state, &p, Some(&caller), &h).await?;
     Ok(Json(h))
@@ -486,7 +494,8 @@ pub async fn sync(
     Path(slug): Path<String>,
     Json(req): Json<HandoffSync>,
 ) -> AppResult<Json<HandoffSyncResult>> {
-    let p = project(&state, &caller, &slug).await?;
+    let mut tx = scoped(&state, &caller).await?;
+    let p = project_in(&mut *tx, &caller, &slug).await?;
     writable(&p)?;
     if req.items.len() > MAX_SYNC_ITEMS {
         return Err(AppError::BadRequest(format!(
@@ -494,6 +503,8 @@ pub async fn sync(
         )));
     }
     let mut res = HandoffSyncResult::default();
+    // Announced after the commit, so the room message can link committed rows.
+    let mut announce: Vec<(bool, HandoffView)> = Vec::new();
     for item in req.items {
         let path = item.source_path.trim().replace('\\', "/");
         if path.is_empty() || path.contains("..") || path.starts_with('/') {
@@ -523,12 +534,12 @@ pub async fn sync(
         ))
         .bind(p.id)
         .bind(&path)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&mut *tx)
         .await?;
         match existing {
             None => {
                 let h = insert(
-                    &state.pool,
+                    &mut *tx,
                     Insert {
                         p: &p,
                         author: Some(&caller),
@@ -550,7 +561,7 @@ pub async fn sync(
                     source_path: h.source_path.clone().unwrap_or_default(),
                 });
                 if req.announce && status == "open" {
-                    announce_new(&state, &p, Some(&caller), &h).await?;
+                    announce.push((true, h));
                 }
             }
             Some(old) if old.source_hash.as_deref() == Some(item.source_hash.as_str()) => {
@@ -576,7 +587,7 @@ pub async fn sync(
                 .bind(&item.source_hash)
                 .bind(&note)
                 .bind(caller.member_id)
-                .fetch_one(&state.pool)
+                .fetch_one(&mut *tx)
                 .await?;
                 let h = row.view();
                 res.touched.push(SyncedHandoff {
@@ -587,13 +598,21 @@ pub async fn sync(
                     ("open", "done") => {
                         res.closed += 1;
                         if req.announce {
-                            announce_done(&state, &p, Some(&caller), &h).await?;
+                            announce.push((false, h));
                         }
                     }
                     ("done", "open") => res.reopened += 1,
                     _ => res.updated += 1,
                 }
             }
+        }
+    }
+    tx.commit().await?;
+    for (new, h) in &announce {
+        if *new {
+            announce_new(&state, &p, Some(&caller), h).await?;
+        } else {
+            announce_done(&state, &p, Some(&caller), h).await?;
         }
     }
     Ok(Json(res))

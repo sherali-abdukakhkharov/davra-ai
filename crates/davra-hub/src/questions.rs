@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::api::project;
+use crate::api::{project_in, scoped};
 use crate::db::{self, Caller, NewMessage};
 use crate::error::{AppError, AppResult};
 use crate::telegram::Telegram;
@@ -60,7 +60,8 @@ pub async fn ask(
     Path(slug): Path<String>,
     Json(req): Json<AskRequest>,
 ) -> AppResult<Json<AskResponse>> {
-    let p = project(&state, &caller, &slug).await?;
+    let mut tx = scoped(&state, &caller).await?;
+    let p = project_in(&mut *tx, &caller, &slug).await?;
     if caller.kind != MemberKind::Agent {
         return Err(AppError::Forbidden("only agents ask their owner".into()));
     }
@@ -92,7 +93,7 @@ pub async fn ask(
     .bind(owner_id)
     .bind(&question)
     .bind(&options)
-    .fetch_one(&state.pool)
+    .fetch_one(&mut *tx)
     .await?;
 
     let mut body = format!("Question #{qid} for @{owner}: {question}");
@@ -100,7 +101,7 @@ pub async fn ask(
         body.push_str(&format!("\n{}. {}", i + 1, o));
     }
     let mid = db::insert_message(
-        &state.pool,
+        &mut *tx,
         &NewMessage {
             org_id: p.org_id,
             project_id: p.id,
@@ -122,8 +123,9 @@ pub async fn ask(
     sqlx::query("update questions set message_id = $2 where id = $1")
         .bind(qid)
         .bind(mid)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await?;
+    tx.commit().await?;
 
     let mut buttons = false;
     if let (Some(tg), Some(chat)) = (&state.telegram, p.tg_chat_id) {
@@ -178,7 +180,7 @@ struct Open {
     tg_chat_id: Option<i64>,
 }
 
-async fn load(pool: &PgPool, id: i64) -> Result<Option<Open>> {
+async fn load(pool: &mut sqlx::PgConnection, id: i64) -> Result<Option<Open>> {
     type Row = (
         Uuid,
         Uuid,
@@ -194,7 +196,7 @@ async fn load(pool: &PgPool, id: i64) -> Result<Option<Open>> {
          from questions q join members a on a.id = q.agent_id join projects p on p.id = q.project_id where q.id = $1",
     )
     .bind(id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *pool)
     .await?;
     Ok(row.map(
         |(
@@ -220,16 +222,16 @@ async fn load(pool: &PgPool, id: i64) -> Result<Option<Open>> {
 }
 
 /// Stores the answer and posts it as the owner, replying to the question.
-async fn record(pool: &PgPool, id: i64, q: &Open, answer: &str) -> Result<i64> {
+async fn record(pool: &mut sqlx::PgConnection, id: i64, q: &Open, answer: &str) -> Result<i64> {
     sqlx::query(
         "update questions set answer = $2, answered_at = now() where id = $1 and answer is null",
     )
     .bind(id)
     .bind(answer)
-    .execute(pool)
+    .execute(&mut *pool)
     .await?;
     let mid = db::insert_message(
-        pool,
+        &mut *pool,
         &NewMessage {
             org_id: q.org_id,
             project_id: q.project_id,
@@ -259,7 +261,8 @@ pub async fn answer(
     Json(req): Json<AnswerRequest>,
 ) -> AppResult<Json<AnswerResponse>> {
     let not_found = || AppError::NotFound(format!("question #{id} not found"));
-    let q = load(&state.pool, id).await?.ok_or_else(not_found)?;
+    let mut tx = scoped(&state, &caller).await?;
+    let q = load(&mut tx, id).await?.ok_or_else(not_found)?;
     if q.org_id != caller.org_id || q.owner_id != caller.member_id {
         return Err(not_found());
     }
@@ -272,7 +275,8 @@ pub async fn answer(
     if text.is_empty() {
         return Err(AppError::BadRequest("answer is empty".into()));
     }
-    let mid = record(&state.pool, id, &q, &text).await?;
+    let mid = record(&mut tx, id, &q, &text).await?;
+    tx.commit().await?;
     if let (Some(tg), Some(chat)) = (&state.telegram, q.tg_chat_id) {
         let reply = match q.message_id {
             Some(m) => db::reply_target(&state.pool, q.project_id, m).await?,
@@ -315,7 +319,7 @@ pub async fn on_button(
     let Some((qid, idx)) = cb.data.as_deref().and_then(parse_callback) else {
         return tg.answer_callback(&cb.id, "").await;
     };
-    let Some(q) = load(pool, qid).await? else {
+    let Some(q) = load(&mut *pool.acquire().await?, qid).await? else {
         return tg
             .answer_callback(&cb.id, "This question no longer exists")
             .await;
@@ -335,7 +339,7 @@ pub async fn on_button(
     let Some(choice) = q.options.get(idx).cloned() else {
         return tg.answer_callback(&cb.id, "Unknown option").await;
     };
-    let mid = record(pool, qid, &q, &choice).await?;
+    let mid = record(&mut *pool.acquire().await?, qid, &q, &choice).await?;
     tg.answer_callback(&cb.id, &format!("Saved: {choice}"))
         .await?;
     if let Some(m) = &cb.message {

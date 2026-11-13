@@ -636,7 +636,7 @@ pub async fn set_member_role(
     )
     .await?;
     Ok(Json(MemberList {
-        members: members(&state.pool, &p, caller.member_id).await?,
+        members: members(&mut *state.pool.acquire().await?, &p, caller.member_id).await?,
     }))
 }
 

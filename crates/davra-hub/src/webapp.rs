@@ -290,7 +290,11 @@ pub struct MemberItem {
     tokens: Vec<TokenItem>,
 }
 
-pub(crate) async fn members(pool: &PgPool, p: &Project, me: Uuid) -> AppResult<Vec<MemberItem>> {
+pub(crate) async fn members(
+    pool: &mut sqlx::PgConnection,
+    p: &Project,
+    me: Uuid,
+) -> AppResult<Vec<MemberItem>> {
     type Row = (
         Uuid,
         String,
@@ -310,7 +314,7 @@ pub(crate) async fn members(pool: &PgPool, p: &Project, me: Uuid) -> AppResult<V
          where g.project_id = $1 order by m.kind desc, m.handle",
     )
     .bind(p.id)
-    .fetch_all(pool)
+    .fetch_all(&mut *pool)
     .await?;
     let mut out = Vec::with_capacity(rows.len());
     for (id, handle, kind, display_name, owner, roles, role, owner_id, last_seen, linked) in rows {
@@ -322,7 +326,7 @@ pub(crate) async fn members(pool: &PgPool, p: &Project, me: Uuid) -> AppResult<V
                  order by created_at",
             )
             .bind(id)
-            .fetch_all(pool)
+            .fetch_all(&mut *pool)
             .await?;
             t.into_iter()
                 .map(|(id, name, created_at, last_used_at)| TokenItem {
@@ -386,7 +390,8 @@ pub async fn project_detail(
     Path((org, slug)): Path<(String, String)>,
 ) -> AppResult<Json<ProjectDetail>> {
     let (caller, p) = open_project(&state, user.id, &org, &slug).await?;
-    let pool = &state.pool;
+    let mut tx = crate::api::scoped(&state, &caller).await?;
+    let pool = &mut *tx;
     let (messages_7d, open_handoffs, done_7d, agents): (i64, i64, i64, i64) = sqlx::query_as(
         "select (select count(*) from messages where project_id = $1 and created_at > now() - interval '7 days'), \
          (select count(*) from handoffs where project_id = $1 and status = 'open'), \
@@ -394,15 +399,18 @@ pub async fn project_detail(
          (select count(*) from grants g join members m on m.id = g.member_id where g.project_id = $1 and m.kind = 'agent')",
     )
     .bind(p.id)
-    .fetch_one(pool)
+    .fetch_one(&mut *pool)
     .await?;
     let reader = caller.reader();
-    let messages = db::recent(pool, p.id, 30)
+    let messages = db::recent(&mut *pool, p.id, 30)
         .await?
         .into_iter()
         .map(|m| m.view(&reader))
         .collect();
-    let handoffs = crate::handoffs::open_in_project(pool, p.id, 20).await?;
+    let handoffs = crate::handoffs::open_in_project(&mut *pool, p.id, 20).await?;
+    let total = db::total_messages(&mut *pool, p.id).await?;
+    let members = members(pool, &p, caller.member_id).await?;
+    tx.commit().await?;
     Ok(Json(ProjectDetail {
         project: ProjectHead {
             org: caller.org_slug.clone(),
@@ -413,13 +421,13 @@ pub async fn project_detail(
             telegram: p.tg_chat_id.is_some(),
         },
         stats: Stats {
-            messages: db::total_messages(pool, p.id).await?,
+            messages: total,
             messages_7d,
             open_handoffs,
             done_handoffs_7d: done_7d,
             agents,
         },
-        members: members(pool, &p, caller.member_id).await?,
+        members,
         messages,
         handoffs,
     }))
@@ -443,11 +451,13 @@ pub async fn older_messages(
 ) -> AppResult<Json<MessagePage>> {
     let (caller, p) = open_project(&state, user.id, &org, &slug).await?;
     let reader = caller.reader();
-    let messages = db::before(&state.pool, p.id, q.before, 30)
+    let mut tx = crate::api::scoped(&state, &caller).await?;
+    let messages = db::before(&mut *tx, p.id, q.before, 30)
         .await?
         .into_iter()
         .map(|m| m.view(&reader))
         .collect();
+    tx.commit().await?;
     Ok(Json(MessagePage { messages }))
 }
 
@@ -473,8 +483,9 @@ pub async fn search(
         None => None,
     };
     let reader = caller.reader();
+    let mut tx = crate::api::scoped(&state, &caller).await?;
     let hits = db::search(
-        &mut *state.pool.acquire().await?,
+        &mut tx,
         p.id,
         query,
         q.k.unwrap_or(10).clamp(1, 20),
@@ -494,6 +505,7 @@ pub async fn search(
         }
     })
     .collect();
+    tx.commit().await?;
     Ok(Json(SearchResults {
         project: p.slug,
         query: query.to_string(),
@@ -540,7 +552,7 @@ fn clean_roles(raw: &[String]) -> Vec<String> {
 }
 
 async fn agent_item(pool: &PgPool, p: &Project, me: Uuid, handle: &str) -> AppResult<MemberItem> {
-    members(pool, p, me)
+    members(&mut *pool.acquire().await?, p, me)
         .await?
         .into_iter()
         .find(|m| m.handle == handle)
