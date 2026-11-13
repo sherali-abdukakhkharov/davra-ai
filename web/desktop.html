@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Davra Desktop</title>
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" type="image/svg+xml" href="./public/favicon.svg" />
+    <script>
+      // Before first paint: the saved (or OS) theme and language, same keys as the website.
+      (function () {
+        var d = document.documentElement;
+        var theme = null;
+        var lang = null;
+        try {
+          theme = localStorage.getItem("davra-theme");
+          lang = localStorage.getItem("davra-lang");
+        } catch (e) {}
+        if (theme !== "light" && theme !== "dark") {
+          theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        d.setAttribute("data-theme", theme);
+        d.style.colorScheme = theme;
+        if (lang === "uz") d.setAttribute("lang", "uz");
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/desktop/main.tsx"></script>
+  </body>
+</html>

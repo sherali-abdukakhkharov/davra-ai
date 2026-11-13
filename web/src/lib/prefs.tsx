@@ -33,14 +33,15 @@ function initialTheme(): Theme {
   return attr === "dark" ? "dark" : "light";
 }
 
-export function PrefsProvider({ children }: { children: ReactNode }) {
+/** `title` picks the document title from the dictionary; the website uses meta.title. */
+export function PrefsProvider({ children, title }: { children: ReactNode; title?: (t: Dict) => string }) {
   const [lang, setLangState] = useState<Lang>(() => (read("davra-lang") === "uz" ? "uz" : "en"));
   const [theme, setTheme] = useState<Theme>(initialTheme);
 
   useEffect(() => {
     document.documentElement.lang = lang;
-    document.title = dictionaries[lang].meta.title;
-  }, [lang]);
+    document.title = title ? title(dictionaries[lang]) : dictionaries[lang].meta.title;
+  }, [lang, title]);
 
   useEffect(() => {
     const root = document.documentElement;
