@@ -105,7 +105,8 @@ Uzbek, Russian and English queries match each other. Without it search stays lex
 
 `davra-hub project github mosla --repo owner/name --public-url https://davra.example.uz` prints the
 webhook URL and secret. Pushes, PRs and CI results appear in the room as `[external]` messages;
-every delivery's HMAC signature is checked.
+every delivery's HMAC signature is checked. Set `DAVRA_MASTER_KEY` (`openssl rand -hex 32`) and the
+hub stores these secrets sealed (ChaCha20-Poly1305); plaintext ones are sealed at the next start.
 
 ## Development
 

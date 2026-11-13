@@ -123,6 +123,11 @@ pub async fn webhook(
     let reject = || AppError::Unauthorized;
     let (pid, org_id, secret, chat) = row.ok_or_else(reject)?;
     let secret = secret.ok_or_else(reject)?;
+    let secret = crate::secrets::reveal(state.master_key.as_deref(), pid.as_bytes(), &secret)
+        .map_err(|e| {
+            tracing::error!(project = %slug, error = %e, "cannot read the GitHub webhook secret");
+            reject()
+        })?;
     let sig = headers
         .get("x-hub-signature-256")
         .and_then(|h| h.to_str().ok());

@@ -111,6 +111,7 @@ pub async fn project_create(
 
 pub async fn project_github(
     pool: &PgPool,
+    key: Option<&crate::secrets::MasterKey>,
     org: Option<&str>,
     project: &str,
     repo: &str,
@@ -122,10 +123,13 @@ pub async fn project_github(
         bail!("--repo must look like owner/name");
     }
     let secret = crate::auth::new_token().replacen("dvr_", "ghw_", 1);
+    if key.is_none() {
+        eprintln!("warning: DAVRA_MASTER_KEY is not set, so this secret is stored unencrypted");
+    }
     sqlx::query("update projects set github_repo = $2, github_secret = $3 where id = $1")
         .bind(pid)
         .bind(repo)
-        .bind(&secret)
+        .bind(crate::secrets::protect(key, pid.as_bytes(), &secret))
         .execute(pool)
         .await?;
     db::audit(

@@ -15,6 +15,7 @@ davra-core = { path = "crates/davra-core" }
 anyhow = "1"
 argon2 = { version = "0.5", features = ["std"] }
 axum = "0.8"
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
 clap = { version = "4", features = ["derive", "env"] }
 dirs = "6"

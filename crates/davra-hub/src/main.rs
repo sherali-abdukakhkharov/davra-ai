@@ -10,6 +10,7 @@ mod github;
 mod handoffs;
 mod live;
 mod questions;
+mod secrets;
 mod team;
 mod telegram;
 mod tgexport;
@@ -42,6 +43,8 @@ pub struct AppState {
     pub client_ip_header: Option<axum::http::HeaderName>,
     /// Project ids with a new message, for inbox requests that wait.
     pub events: live::Events,
+    /// Seals secrets the hub stores and reads back. None: kept as stored.
+    pub master_key: Option<Arc<secrets::MasterKey>>,
 }
 
 #[derive(Parser)]
@@ -53,6 +56,10 @@ pub struct AppState {
 struct Cli {
     #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
     database_url: String,
+    /// 64 hex characters (`openssl rand -hex 32`). Seals GitHub webhook secrets at rest.
+    /// Keep it outside the database backups; without it sealed secrets cannot be read.
+    #[arg(long, env = "DAVRA_MASTER_KEY", hide_env_values = true, global = true)]
+    master_key: Option<String>,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -274,6 +281,15 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
     let pool = connect(&cli.database_url).await?;
+    let master_key = match cli
+        .master_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|k| !k.is_empty())
+    {
+        Some(k) => Some(Arc::new(secrets::MasterKey::parse(k)?)),
+        None => None,
+    };
 
     match cli.cmd {
         Cmd::Serve {
@@ -303,6 +319,19 @@ async fn main() -> Result<()> {
             };
             if !no_migrate {
                 migrate(&pool).await?;
+            }
+            match &master_key {
+                Some(k) => {
+                    let n = secrets::seal_existing(&pool, k).await?;
+                    if n > 0 {
+                        tracing::info!(count = n, "sealed GitHub secrets stored in the clear");
+                    }
+                }
+                None => {
+                    if secrets::count_plain(&pool).await? > 0 {
+                        tracing::warn!("GitHub webhook secrets are stored unencrypted: set DAVRA_MASTER_KEY (openssl rand -hex 32)");
+                    }
+                }
             }
             let telegram = match telegram_token.filter(|t| !t.trim().is_empty()) {
                 Some(t) => {
@@ -345,6 +374,7 @@ async fn main() -> Result<()> {
                 downloads_dir: downloads_dir.filter(|d| d.join("SHA256SUMS").is_file()),
                 client_ip_header,
                 events,
+                master_key: master_key.clone(),
             });
             let listener = tokio::net::TcpListener::bind(&bind)
                 .await
@@ -376,7 +406,17 @@ async fn main() -> Result<()> {
             repo,
             public_url,
             org,
-        }) => admin::project_github(&pool, org.as_deref(), &slug, &repo, &public_url).await?,
+        }) => {
+            admin::project_github(
+                &pool,
+                master_key.as_deref(),
+                org.as_deref(),
+                &slug,
+                &repo,
+                &public_url,
+            )
+            .await?
+        }
         Cmd::Project(ProjectCmd::LinkTelegram { slug, chat, org }) => {
             admin::project_link_telegram(&pool, org.as_deref(), &slug, chat).await?
         }

@@ -10,6 +10,8 @@ CLI="$BIN/davra"
 PORT=${PORT:-18080}
 export DAVRA_HUB="http://127.0.0.1:$PORT"
 export DAVRA_HOME="$(mktemp -d)"
+# GitHub secrets are sealed at rest; every hub command below uses this key.
+export DAVRA_MASTER_KEY=${DAVRA_MASTER_KEY:-$(openssl rand -hex 32)}
 WORK="$(mktemp -d)"
 pass=0
 
@@ -290,7 +292,9 @@ has "$out" "Answer to question #$QID: Ha, merge qil" "answer text"
 ok "ask_owner: question reaches the owner, only the owner answers, answer is [owner] for the agent"
 
 echo "== github webhook"
-GH_SECRET=$("$HUB" project github mosla --repo acme/mosla --public-url "$DAVRA_HUB" | awk '/Secret:/ {print $2}')
+GH_OUT=$("$HUB" project github mosla --repo acme/mosla --public-url "$DAVRA_HUB" 2>&1)
+hasnt "$GH_OUT" "unencrypted" "a configured master key seals the secret"
+GH_SECRET=$(awk '/Secret:/ {print $2}' <<<"$GH_OUT")
 GH_URL="$DAVRA_HUB/webhooks/github/shaxsiy/mosla"
 payload='{"ref":"refs/heads/main","pusher":{"name":"gulom"},"commits":[{}],"head_commit":{"message":"MOS-032: counter added"}}'
 sig="sha256=$(printf '%s' "$payload" | openssl dgst -sha256 -hmac "$GH_SECRET" -hex | awk '{print $NF}')"
@@ -300,7 +304,7 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -H 'X-GitHub-Event: push' -H "X-Hu
 [ "$code" = 204 ] || fail "signed push -> $code"
 out=$(as "$T_GAI" search "counter added" --project mosla)
 has "$out" "github [external]: push to main by gulom: MOS-032: counter added" "push stored as external"
-ok "github webhook: bad signature 401, signed push stored as [external]"
+ok "github webhook: secret sealed at rest, bad signature 401, signed push stored as [external]"
 
 echo "== web accounts"
 J=(-H 'content-type: application/json')
