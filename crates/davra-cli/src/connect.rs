@@ -933,7 +933,7 @@ mod tests {
         let s = usage_settings(
             "C:/Program Files/davra.exe",
             "https://davra.example.uz",
-            "mosla",
+            "atlas",
         );
         assert_eq!(s["env"]["CLAUDE_CODE_ENABLE_TELEMETRY"], "1");
         assert_eq!(
@@ -942,7 +942,7 @@ mod tests {
         );
         assert_eq!(
             s["otelHeadersHelper"],
-            "\"C:/Program Files/davra.exe\" otel-headers --hub https://davra.example.uz --project mosla"
+            "\"C:/Program Files/davra.exe\" otel-headers --hub https://davra.example.uz --project atlas"
         );
         // What davra 0.2.0 merged into settings.local.json comes out cleanly.
         let original = json!({ "env": { "FOO": "1" }, "permissions": { "allow": [] } });
@@ -987,13 +987,13 @@ mod tests {
         std::fs::create_dir_all(dir.join(".claude")).unwrap();
         std::env::set_var("DAVRA_HOME", dir.join("home"));
         // Old usage settings in settings.local.json, next to the person's own.
-        let old = json!({ "permissions": { "allow": ["Bash(ls)"] }, "otelHeadersHelper": "davra otel-headers --hub h --project mosla" });
+        let old = json!({ "permissions": { "allow": ["Bash(ls)"] }, "otelHeadersHelper": "davra otel-headers --hub h --project atlas" });
         std::fs::write(dir.join(LOCAL_SETTINGS), pretty(&old)).unwrap();
-        let plan = repo(&dir, "https://h.example", Some("o"), "mosla").unwrap();
+        let plan = repo(&dir, "https://h.example", Some("o"), "atlas").unwrap();
         let titles: Vec<&str> = plan.steps.iter().map(Step::title).collect();
         assert_eq!(titles.len(), 2, "{titles:?}");
         assert!(plan.steps[0].is_new_file());
-        assert!(plan.steps[0].diff().contains("+project = \"mosla\""));
+        assert!(plan.steps[0].diff().contains("+project = \"atlas\""));
         assert!(plan.steps[1].diff().contains("-  \"otelHeadersHelper\""));
         // A file changed after the plan was made is refused.
         std::fs::write(dir.join(LOCAL_SETTINGS), "{\"changed\": true}\n").unwrap();
@@ -1002,7 +1002,7 @@ mod tests {
             .to_string()
             .contains("changed since"));
         std::fs::write(dir.join(LOCAL_SETTINGS), pretty(&old)).unwrap();
-        let plan = repo(&dir, "https://h.example", Some("o"), "mosla").unwrap();
+        let plan = repo(&dir, "https://h.example", Some("o"), "atlas").unwrap();
         assert_eq!(
             apply(&plan).unwrap().len(),
             1,
@@ -1013,13 +1013,13 @@ mod tests {
                 .unwrap();
         assert_eq!(left, json!({ "permissions": { "allow": ["Bash(ls)"] } }));
         // Linked already: nothing more to do; another project is refused.
-        assert!(repo(&dir, "https://h.example", Some("o"), "mosla")
+        assert!(repo(&dir, "https://h.example", Some("o"), "atlas")
             .unwrap()
             .is_empty());
         assert!(repo(&dir, "https://h.example", None, "other").is_err());
         // Usage is on unless turned off for this repository.
         let st = repo_state(&dir, None);
-        assert_eq!(st.project.as_deref(), Some("mosla"));
+        assert_eq!(st.project.as_deref(), Some("atlas"));
         assert!(st.usage && st.has_file);
         set_usage(&dir, false).unwrap();
         assert!(!repo_state(&dir, None).usage);

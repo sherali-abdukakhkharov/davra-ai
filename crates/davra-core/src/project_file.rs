@@ -12,7 +12,7 @@ pub struct ProjectFile {
     pub hub: Option<String>,
     pub org: Option<String>,
     pub project: String,
-    /// Where the repository keeps handoff files (Mosla convention).
+    /// Where the repository keeps handoff files (docs/memory/handoffs convention).
     pub handoffs: Option<String>,
     #[serde(default)]
     pub topics: Vec<String>,
@@ -48,13 +48,13 @@ mod tests {
             r#"
 hub      = "https://davra.example.uz"
 org      = "shaxsiy"
-project  = "mosla"
+project  = "atlas"
 handoffs = "docs/memory/handoffs"
 topics   = ["general", "handoffs"]
 "#,
         )
         .unwrap();
-        assert_eq!(pf.project, "mosla");
+        assert_eq!(pf.project, "atlas");
         assert_eq!(pf.topics.len(), 2);
     }
 
@@ -63,9 +63,9 @@ topics   = ["general", "handoffs"]
         let root = std::env::temp_dir().join(format!("davra-pf-{}", std::process::id()));
         let nested = root.join("a").join("b");
         std::fs::create_dir_all(&nested).unwrap();
-        std::fs::write(root.join(FILE_NAME), "project = \"mosla\"\n").unwrap();
+        std::fs::write(root.join(FILE_NAME), "project = \"atlas\"\n").unwrap();
         let (path, pf) = find(&nested).unwrap();
-        assert_eq!(pf.project, "mosla");
+        assert_eq!(pf.project, "atlas");
         assert_eq!(path, root.join(FILE_NAME));
         std::fs::remove_dir_all(&root).ok();
     }

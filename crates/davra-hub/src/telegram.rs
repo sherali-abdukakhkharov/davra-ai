@@ -636,15 +636,15 @@ mod tests {
             "update_id": 10,
             "message": {
                 "message_id": 55, "date": 1_762_950_000,
-                "chat": { "id": -1001234, "type": "supergroup", "title": "mosla · AI team" },
-                "from": { "id": 42, "is_bot": false, "first_name": "G'ulom", "username": "gulom" },
-                "text": "@gulom-ai bugun qilib ber"
+                "chat": { "id": -1001234, "type": "supergroup", "title": "atlas · AI team" },
+                "from": { "id": 42, "is_bot": false, "first_name": "Backend Dev", "username": "backend" },
+                "text": "@backend-ai bugun qilib ber"
             }
         }));
         let inc = parse_update(&u).unwrap();
         assert_eq!(inc.chat_id, -1001234);
         assert_eq!(inc.from_id, Some(42));
-        assert_eq!(inc.from_name, "gulom");
+        assert_eq!(inc.from_name, "backend");
         assert_eq!(inc.reply_to_tg, None);
         assert!(!inc.edited);
     }
@@ -656,7 +656,7 @@ mod tests {
             "message": {
                 "message_id": 60, "message_thread_id": 7, "is_topic_message": true, "date": 1_762_950_000,
                 "chat": { "id": -1001234 },
-                "from": { "id": 42, "first_name": "G'ulom" },
+                "from": { "id": 42, "first_name": "Backend Dev" },
                 "text": "salom",
                 "reply_to_message": {
                     "message_id": 7, "date": 1_762_900_000, "chat": { "id": -1001234 },
@@ -677,7 +677,7 @@ mod tests {
             "message": {
                 "message_id": 61, "message_thread_id": 7, "is_topic_message": true, "date": 1_762_950_000,
                 "chat": { "id": -1001234 },
-                "from": { "id": 42, "first_name": "G'ulom" },
+                "from": { "id": 42, "first_name": "Backend Dev" },
                 "text": "zo'r",
                 "reply_to_message": { "message_id": 58, "date": 1_762_940_000, "chat": { "id": -1001234 } }
             }
@@ -703,33 +703,33 @@ mod tests {
     fn mentions_for_telegram() {
         let mut people = std::collections::HashMap::new();
         people.insert(
-            "ali_9737".to_string(),
+            "front_dev".to_string(),
             TgPerson {
                 user_id: 542,
-                username: Some("ali_9737".into()),
-                name: "LionAli".into(),
+                username: Some("front_dev".into()),
+                name: "Frontend".into(),
             },
         );
         people.insert(
-            "gulom".to_string(),
+            "backend".to_string(),
             TgPerson {
                 user_id: 42,
                 username: None,
-                name: "G'ulom".into(),
+                name: "Backend Dev".into(),
             },
         );
         let (text, ents) =
-            render_mentions("🤖 bot\n@gulom va @Ali_9737, ko'ring. @unknown", &people);
-        assert_eq!(text, "🤖 bot\nG'ulom va @ali_9737, ko'ring. @unknown");
+            render_mentions("🤖 bot\n@backend va @Front_Dev, ko'ring. @unknown", &people);
+        assert_eq!(text, "🤖 bot\nBackend Dev va @front_dev, ko'ring. @unknown");
         assert_eq!(ents.len(), 1);
-        // "🤖" is 2 UTF-16 units, so G'ulom starts at 2 + " bot\n".len() = 7.
+        // "🤖" is 2 UTF-16 units, so Backend Dev starts at 2 + " bot\n".len() = 7.
         assert_eq!(ents[0]["offset"], 7);
-        assert_eq!(ents[0]["length"], 6);
+        assert_eq!(ents[0]["length"], 11);
         assert_eq!(ents[0]["user"]["id"], 42);
-        let (text, _) = render_mentions("rahmat @gulom.", &people);
-        assert_eq!(text, "rahmat G'ulom.");
-        let (text, ents) = render_mentions("mail a@gulom.uz", &people);
-        assert_eq!(text, "mail a@gulom.uz");
+        let (text, _) = render_mentions("rahmat @backend.", &people);
+        assert_eq!(text, "rahmat Backend Dev.");
+        let (text, ents) = render_mentions("mail a@backend.uz", &people);
+        assert_eq!(text, "mail a@backend.uz");
         assert!(ents.is_empty());
     }
 

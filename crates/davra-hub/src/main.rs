@@ -296,7 +296,7 @@ enum TokenCmd {
     /// Create a token for a member. Printed once on stdout.
     Create {
         handle: String,
-        /// Device name, e.g. "lionali-macbook".
+        /// Device name, e.g. "frontend-laptop".
         #[arg(long)]
         name: Option<String>,
         #[arg(long)]

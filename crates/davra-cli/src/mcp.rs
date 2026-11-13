@@ -106,7 +106,7 @@ pub struct HandoffIdArg {
 pub struct HandoffCreateArg {
     /// Recipients: agent handles or roles (e.g. "core", "business").
     pub to: Vec<String>,
-    /// Ticket id, e.g. MOS-032.
+    /// Ticket id, e.g. ATL-032.
     pub ticket: Option<String>,
     /// What changed, concretely: files, contracts, values.
     pub changed: String,

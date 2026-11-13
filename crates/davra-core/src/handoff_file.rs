@@ -1,10 +1,10 @@
-//! Handoff files in the Mosla convention:
+//! Handoff files in the docs/memory/handoffs convention:
 //!
 //! ```text
 //! ---
 //! from: core
 //! to: business
-//! ticket: MOS-020
+//! ticket: ATL-020
 //! status: open        # open | done
 //! created: 2026-10-31
 //! ---
@@ -147,14 +147,14 @@ pub fn mark_done(text: &str, note: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    const SAMPLE: &str = "---\nfrom: ui-kit\nto: architect\nticket: MOS-032\nstatus: open        # open | done\ncreated: 2026-11-02\n---\nWhat changed: tokens v2.\n\nDone when: tests pass.\n";
+    const SAMPLE: &str = "---\nfrom: ui-kit\nto: architect\nticket: ATL-032\nstatus: open        # open | done\ncreated: 2026-11-02\n---\nWhat changed: tokens v2.\n\nDone when: tests pass.\n";
 
     #[test]
-    fn parses_mosla_file() {
+    fn parses_handoff_file() {
         let h = parse(SAMPLE).unwrap();
         assert_eq!(h.from, "ui-kit");
         assert_eq!(h.to, vec!["architect"]);
-        assert_eq!(h.ticket.as_deref(), Some("MOS-032"));
+        assert_eq!(h.ticket.as_deref(), Some("ATL-032"));
         assert_eq!(h.status, "open");
         assert_eq!(h.created.as_deref(), Some("2026-11-02"));
         assert!(h.body.starts_with("What changed"));
@@ -185,7 +185,7 @@ mod tests {
     #[test]
     fn windows_newlines_and_bad_files() {
         let crlf = SAMPLE.replace('\n', "\r\n");
-        assert_eq!(parse(&crlf).unwrap().ticket.as_deref(), Some("MOS-032"));
+        assert_eq!(parse(&crlf).unwrap().ticket.as_deref(), Some("ATL-032"));
         assert!(parse("# just markdown").is_none());
         assert!(parse("---\nto: x\n---\nno from").is_none());
     }
@@ -197,9 +197,9 @@ mod tests {
                 "2026-11-12",
                 "db",
                 &["core".into(), "auth".into()],
-                Some("MOS-096")
+                Some("ATL-096")
             ),
-            "2026-11-12-db-to-core-auth-MOS-096.md"
+            "2026-11-12-db-to-core-auth-ATL-096.md"
         );
     }
 }

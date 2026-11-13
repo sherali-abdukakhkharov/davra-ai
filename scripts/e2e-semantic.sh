@@ -10,15 +10,15 @@ fail() { echo "  FAIL $*" >&2; exit 1; }
 
 "$HUB" migrate >/dev/null
 "$HUB" org create sem >/dev/null
-"$HUB" project create mosla >/dev/null
-"$HUB" member add ali --kind human --project mosla >/dev/null
-T=$("$HUB" token create ali 2>/dev/null)
+"$HUB" project create atlas >/dev/null
+"$HUB" member add lead --kind human --project atlas >/dev/null
+T=$("$HUB" token create lead 2>/dev/null)
 "$HUB" serve --bind "127.0.0.1:$PORT" --no-migrate --cookie-secure false --embed-url "$DAVRA_EMBED_URL" >/tmp/sem-hub.log 2>&1 &
 PID=$!; trap 'kill $PID 2>/dev/null || true' EXIT
 for _ in $(seq 1 50); do curl -fs "$DAVRA_HUB/healthz" >/dev/null 2>&1 && break; sleep 0.1; done
 curl -fs "$DAVRA_HUB/.well-known/davra.json" | grep -q 'search:semantic' || fail "semantic feature not advertised"
 
-post() { DAVRA_TOKEN=$T "$CLI" post "$1" --project mosla >/dev/null; }
+post() { DAVRA_TOKEN=$T "$CLI" post "$1" --project atlas >/dev/null; }
 post "Textarea komponentida maxLength endi qattiq cheklov emas, faqat ogohlantirish beradi"
 post "Deploy pipeline uchun Cloudflare tunnel tokenini yangiladim"
 post "Nur Dental brendi uchun yangi binafsha rang palitrasi qo'shildi"
@@ -33,9 +33,9 @@ done
 [ "$left" = 0 ] || fail "messages not embedded in time"
 
 # No shared words with the target message: only meaning connects them.
-out=$(DAVRA_TOKEN=$T "$CLI" search "matn maydonining uzunlik limiti" --project mosla -k 1)
+out=$(DAVRA_TOKEN=$T "$CLI" search "matn maydonining uzunlik limiti" --project atlas -k 1)
 echo "$out" | head -2
 grep -q "Textarea" <<<"$out" || fail "semantic match (uz paraphrase)"
-out=$(DAVRA_TOKEN=$T "$CLI" search "pagination of the contacts list" --project mosla -k 1)
+out=$(DAVRA_TOKEN=$T "$CLI" search "pagination of the contacts list" --project atlas -k 1)
 grep -q "Kontaktlar" <<<"$out" || fail "semantic match (en -> uz)"
 echo "semantic: ok (uz paraphrase and en->uz cross-lingual)"

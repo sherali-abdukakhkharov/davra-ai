@@ -154,8 +154,8 @@ mod tests {
 
     #[test]
     fn flattens_entities() {
-        let v = json!(["salom ", { "type": "mention", "text": "@gulom" }, ", ko'rdingmi?"]);
-        assert_eq!(flatten_text(&v), "salom @gulom, ko'rdingmi?");
+        let v = json!(["salom ", { "type": "mention", "text": "@backend" }, ", ko'rdingmi?"]);
+        assert_eq!(flatten_text(&v), "salom @backend, ko'rdingmi?");
         assert_eq!(flatten_text(&json!("oddiy")), "oddiy");
         assert_eq!(flatten_text(&Value::Null), "");
     }
@@ -163,12 +163,12 @@ mod tests {
     #[test]
     fn parses_export() {
         let e: Export = serde_json::from_value(json!({
-            "name": "mosla · AI team", "type": "private_supergroup", "id": 1234,
+            "name": "atlas · AI team", "type": "private_supergroup", "id": 1234,
             "messages": [
-                { "id": 1, "type": "service", "date": "2026-11-01T09:00:00", "actor": "G'ulom", "text": "" },
+                { "id": 1, "type": "service", "date": "2026-11-01T09:00:00", "actor": "Backend Dev", "text": "" },
                 { "id": 2, "type": "message", "date": "2026-11-01T09:01:00", "date_unixtime": "1761987660",
-                  "from": "G'ulom", "from_id": "user42", "text": "hi" },
-                { "id": 3, "type": "message", "date": "2026-11-01T09:02:00", "from": "Ali", "from_id": "user7",
+                  "from": "Backend Dev", "from_id": "user42", "text": "hi" },
+                { "id": 3, "type": "message", "date": "2026-11-01T09:02:00", "from": "Lead", "from_id": "user7",
                   "reply_to_message_id": 2, "text": ["ok ", { "type": "bold", "text": "zo'r" }] }
             ]
         }))
