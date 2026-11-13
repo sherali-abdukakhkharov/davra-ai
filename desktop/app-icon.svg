@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Davra mark (web/public/favicon.svg, web/src/components/site/Logo.tsx) at app-icon scale. -->
+  <rect width="1024" height="1024" rx="224" fill="#1d2f8f"/>
+  <circle cx="512" cy="512" r="300" fill="none" stroke="#f3f6fa" stroke-width="92"/>
+  <path d="M512 212a300 300 0 0 1 283.6 202" fill="none" stroke="#4fd1c5" stroke-width="92" stroke-linecap="round"/>
+  <circle cx="512" cy="512" r="86" fill="#f2b84b"/>
+</svg>

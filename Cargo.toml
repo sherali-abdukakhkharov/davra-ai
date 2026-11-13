@@ -1,0 +1,47 @@
+[workspace]
+resolver = "2"
+members = ["crates/davra-core", "crates/davra-hub", "crates/davra-cli"]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/sherali-abdukakhkharov/ai-team"
+rust-version = "1.85"
+
+[workspace.dependencies]
+davra-core = { path = "crates/davra-core" }
+
+anyhow = "1"
+argon2 = { version = "0.5", features = ["std"] }
+axum = "0.8"
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
+clap = { version = "4", features = ["derive", "env"] }
+dirs = "6"
+hex = "0.4"
+hmac = "0.12"
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust", "vendored"] }
+rand = "0.9"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rmcp = { version = "3.9", features = ["server", "transport-io", "macros"] }
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "json", "migrate", "macros"] }
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "io-std", "time", "sync", "net"] }
+toml = "0.8"
+toml_edit = "0.22"
+similar = "2"
+tower-http = { version = "0.6", features = ["trace", "limit", "fs", "set-header"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

@@ -1,0 +1,88 @@
+# Davra hub, self-hosted.
+#   cp deploy/.env.example deploy/.env   # then edit it
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#   docker compose -f deploy/docker-compose.yml --profile tunnel up -d          # tunnel by token
+#   docker compose -f deploy/docker-compose.yml --profile tunnel-config up -d   # tunnel by config file
+name: davra
+
+services:
+  db:
+    image: pgvector/pgvector:pg17   # pgvector is used from v0.2 (embeddings)
+    environment:
+      POSTGRES_DB: davra
+      POSTGRES_USER: davra
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?set PG_PASSWORD in deploy/.env}
+      # Time zone for fresh databases (initdb) and psql sessions, e.g. Asia/Tashkent.
+      TZ: ${DAVRA_TZ:-UTC}
+      PGTZ: ${DAVRA_TZ:-UTC}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U davra -d davra"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  hub:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: davra-hub:local
+    environment:
+      DATABASE_URL: postgres://davra:${PG_PASSWORD}@db:5432/davra
+      DAVRA_TELEGRAM_TOKEN: ${DAVRA_TELEGRAM_TOKEN:-}
+      DAVRA_PUBLIC_URL: ${DAVRA_PUBLIC_URL:-}
+      DAVRA_EMBED_URL: ${DAVRA_EMBED_URL:-}       # http://embed:11434 with --profile embeddings
+      # Requests arrive only through cloudflared, so its client-IP header is trustworthy.
+      DAVRA_CLIENT_IP_HEADER: ${DAVRA_CLIENT_IP_HEADER:-cf-connecting-ip}
+      DAVRA_MASTER_KEY: ${DAVRA_MASTER_KEY:-}
+      DAVRA_LANG: ${DAVRA_LANG:-en}   # labels in Telegram cards: en or uz
+      DAVRA_ANTHROPIC_API_KEY: ${DAVRA_ANTHROPIC_API_KEY:-}   # turns on the daily digest
+      DAVRA_DIGEST_HOUR: ${DAVRA_DIGEST_HOUR:-19}
+      DAVRA_DIGEST_MODEL: ${DAVRA_DIGEST_MODEL:-claude-haiku-5-5}
+      RUST_LOG: ${RUST_LOG:-davra_hub=info,tower_http=warn}
+    ports:
+      - "127.0.0.1:${DAVRA_PORT:-8787}:8080"   # local only; the tunnel publishes it
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Semantic search: docker compose --profile embeddings up -d, then once:
+  #   docker compose -f deploy/docker-compose.yml exec embed ollama pull bge-m3
+  # and set DAVRA_EMBED_URL=http://embed:11434 in deploy/.env.
+  embed:
+    profiles: ["embeddings"]
+    image: ollama/ollama:0.12.6
+    volumes:
+      - ollama:/root/.ollama
+    restart: unless-stopped
+
+  # Remote-managed tunnel: set CF_TUNNEL_TOKEN, run with --profile tunnel.
+  tunnel:
+    profiles: ["tunnel"]
+    image: cloudflare/cloudflared:2026.10.7
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN:-}
+    depends_on: [hub]
+    restart: unless-stopped
+
+  # Locally-managed tunnel: deploy/cloudflared/{config.yml,credentials.json},
+  # run with --profile tunnel-config (see deploy/cloudflared.example.yml).
+  tunnel-config:
+    profiles: ["tunnel-config"]
+    image: cloudflare/cloudflared:2026.10.7
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./cloudflared:/etc/cloudflared:ro
+    depends_on: [hub]
+    restart: unless-stopped
+
+volumes:
+  pgdata: {}
+  ollama: {}

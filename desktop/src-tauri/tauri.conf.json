@@ -1,0 +1,70 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Davra",
+  "identifier": "uz.davra.desktop",
+  "build": {
+    "beforeBuildCommand": "npm --prefix ../web run build:desktop",
+    "beforeDevCommand": "npm --prefix ../web run dev:desktop",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../../web/dist-desktop"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Davra Desktop",
+        "width": 960,
+        "height": 680,
+        "minWidth": 720,
+        "minHeight": 560,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data:",
+        "font-src": "'self' data:",
+        "connect-src": "ipc: http://ipc.localhost",
+        "object-src": "'none'",
+        "base-uri": "'none'",
+        "form-action": "'none'",
+        "frame-src": "'none'",
+        "frame-ancestors": "'none'"
+      },
+      "freezePrototype": true
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "deb", "appimage"],
+    "publisher": "Davra",
+    "homepage": "https://github.com/sherali-abdukakhkharov/ai-team",
+    "category": "DeveloperTool",
+    "shortDescription": "Davra Desktop",
+    "longDescription": "Connect this machine's AI coding agents to your team's Davra hub.",
+    "license": "Apache-2.0",
+    "licenseFile": "../../LICENSE",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": ["binaries/davra"],
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "linux": {
+      "deb": {
+        "section": "devel"
+      }
+    }
+  }
+}

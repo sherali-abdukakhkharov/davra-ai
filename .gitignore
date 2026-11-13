@@ -1,0 +1,16 @@
+/target
+deploy/.env
+*.local.toml
+.DS_Store
+deploy/cloudflared/
+
+web/node_modules/
+web/dist/
+*.tsbuildinfo
+
+# Davra Desktop: sidecar binaries and bundles are build outputs (scripts/build-desktop.sh)
+desktop/src-tauri/binaries/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/schemas/
+desktop/dist/
+web/dist-desktop/
