@@ -135,5 +135,28 @@ docker run --rm \
   -w /src \
   "$image" bash /src/scripts/build-desktop.sh --inside "${platforms[@]}"
 
+# What the hub serves under /desktop (DAVRA_DESKTOP_DIR): this version's installers, their
+# checksums and latest.json, which the web app reads to offer the download.
+version=$(sed -n 's/^version = "\(.*\)"/\1/p' desktop/src-tauri/Cargo.toml | head -1)
+pub=desktop/dist/publish
+rm -rf "$pub" && mkdir -p "$pub"
+entries=()
+for spec in "windows:nsis:desktop/dist/windows/Davra_${version}_x64-setup.exe" \
+            "linux:deb:desktop/dist/linux/Davra_${version}_amd64.deb" \
+            "linux:appimage:desktop/dist/linux/Davra_${version}_amd64.AppImage"; do
+  IFS=: read -r os kind file <<<"$spec"
+  [[ -f "$file" ]] || continue
+  cp "$file" "$pub/"
+  name=$(basename "$file")
+  size=$(wc -c <"$file" | tr -d ' ')
+  sum=$(sha256sum "$file" | cut -d' ' -f1)
+  entries+=("{\"os\":\"$os\",\"kind\":\"$kind\",\"name\":\"$name\",\"size\":$size,\"sha256\":\"$sum\"}")
+done
+if [[ ${#entries[@]} -gt 0 ]]; then
+  (cd "$pub" && sha256sum -- *.exe *.deb *.AppImage 2>/dev/null >SHA256SUMS || true)
+  printf '{"version":"%s","files":[%s]}\n' "$version" "$(IFS=,; echo "${entries[*]}")" >"$pub/latest.json"
+  echo "==> publish: $pub ($(cat "$pub/latest.json" | head -c 200)...)"
+fi
+
 echo "==> done in $((SECONDS - total_start))s"
 find desktop/dist -maxdepth 2 -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*-setup.exe' \) -exec ls -l {} +

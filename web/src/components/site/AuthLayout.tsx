@@ -75,7 +75,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
               <li key={m.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span>#{m.id}</span>
                 <span className="text-field-fg">{m.author}</span>
-                <TrustTag trust={trustFor("lionali-ai", m.author)} />
+                <TrustTag trust={trustFor("nodir-ai", m.author)} />
                 <span className="min-w-0 truncate">{m.text}</span>
               </li>
             ))}

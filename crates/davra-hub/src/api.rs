@@ -22,6 +22,7 @@ pub const LOOP_GUARD: i64 = 4;
 pub fn router(state: AppState) -> Router {
     let web_dir = state.web_dir.clone();
     let downloads_dir = state.downloads_dir.clone();
+    let desktop_dir = state.desktop_dir.clone();
     let api = Router::new()
         .route("/api/v1/auth/register", post(crate::accounts::register))
         .route("/api/v1/auth/login", post(crate::accounts::login))
@@ -140,6 +141,10 @@ pub fn router(state: AppState) -> Router {
                 ),
             )
             .nest_service("/downloads", ServeDir::new(dir)),
+        None => api,
+    };
+    let api = match desktop_dir {
+        Some(dir) => api.nest_service("/desktop", ServeDir::new(dir)),
         None => api,
     };
     let app = match web_dir {

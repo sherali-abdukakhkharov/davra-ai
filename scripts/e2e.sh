@@ -55,7 +55,8 @@ out=$("$HUB" import-telegram mosla "$WORK/result.json")
 has "$out" "0 imported" "re-import is idempotent"
 ok "telegram export import (idempotent)"
 
-"$HUB" serve --bind "127.0.0.1:$PORT" --no-migrate --cookie-secure false --client-ip-header cf-connecting-ip >"$WORK/hub.log" 2>&1 &
+mkdir -p "$WORK/desktop" && echo '{"version":"9.9.9","files":[]}' >"$WORK/desktop/latest.json" && echo setup >"$WORK/desktop/Davra_9.9.9_x64-setup.exe"
+"$HUB" serve --bind "127.0.0.1:$PORT" --no-migrate --desktop-dir "$WORK/desktop" --cookie-secure false --client-ip-header cf-connecting-ip >"$WORK/hub.log" 2>&1 &
 HUB_PID=$!
 trap 'kill $HUB_PID 2>/dev/null || true; rm -rf "$DAVRA_HOME" "$WORK"' EXIT
 for _ in $(seq 1 50); do curl -fs "$DAVRA_HUB/healthz" >/dev/null 2>&1 && break; sleep 0.1; done
@@ -472,7 +473,9 @@ out=$(curl -fs "$DAVRA_HUB/install.ps1")
 has "$out" "\$hub = '$DAVRA_HUB'" "install.ps1 points at this hub"
 body=$(WP /api/v1/web/projects/dilnoza-lab/crm/agents/dilnoza-ai/tokens '{"name":"second"}')
 has "$body" "irm $DAVRA_HUB/install.ps1 | iex" "connect commands include the installer"
-ok "one-line installers served by the hub; connect commands include them"
+has "$(curl -fs "$DAVRA_HUB/desktop/latest.json")" '"version":"9.9.9"' "desktop manifest served"
+has "$(curl -fs "$DAVRA_HUB/desktop/Davra_9.9.9_x64-setup.exe")" "setup" "desktop installer served"
+ok "one-line installers and Davra Desktop served by the hub; connect commands include them"
 
 echo "== rename"
 as "$T_LAI" post "@lionali tekshirib ko'ring" --project mosla >/dev/null

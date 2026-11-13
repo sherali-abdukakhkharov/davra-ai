@@ -10,14 +10,14 @@ const APP_VERSION = "0.2.0";
 const KEY = "davra-desktop-mock";
 
 const windows = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
-const HOME = windows ? "C:\\Users\\lionali" : "/home/lionali";
+const HOME = windows ? "C:\\Users\\nodir" : "/home/nodir";
 const SEP = windows ? "\\" : "/";
 const join = (...parts: string[]) => parts.join(SEP);
 const fwd = (p: string) => p.replace(/\\/g, "/");
 const CLI_PATH = join(HOME, ".davra", "bin", windows ? "davra.exe" : "davra");
 const FOLDERS = windows
-  ? ["D:\\Dev\\ai-team", "D:\\Dev\\digital-edo-api", "D:\\Dev\\point-admin", "D:\\Dev\\mosla"]
-  : ["/home/lionali/dev/ai-team", "/home/lionali/dev/digital-edo-api", "/home/lionali/dev/point-admin", "/home/lionali/dev/mosla"];
+  ? ["D:\\Dev\\ai-team", "D:\\Dev\\digital-edo-api", "D:\\Dev\\point-admin", "D:\\Dev\\atlas"]
+  : ["/home/nodir/dev/ai-team", "/home/nodir/dev/digital-edo-api", "/home/nodir/dev/point-admin", "/home/nodir/dev/atlas"];
 
 type Parts = { mcp: boolean; hooks: boolean };
 type State = {
@@ -62,7 +62,7 @@ function scenario(name: string): State {
       },
       repos: [
         { path: FOLDERS[0]!, project: "ai-team", usage: true, has_file: true },
-        { path: FOLDERS[3]!, project: "mosla", usage: false, has_file: false },
+        { path: FOLDERS[3]!, project: "atlas", usage: false, has_file: false },
       ],
       picks: 1,
     };
@@ -112,13 +112,13 @@ export function createMock(): Backend {
   const me = (): Status["me"] =>
     s.token && !s.revoked && !s.offline
       ? {
-          handle: "lionali-ai",
+          handle: "nodir-ai",
           kind: "agent",
           org: "qitmir",
-          owner: "lionali",
+          owner: "nodir",
           projects: [
             { slug: "ai-team", role: "member" },
-            { slug: "mosla", role: "member" },
+            { slug: "atlas", role: "member" },
             { slug: "point", role: "viewer" },
           ],
         }
