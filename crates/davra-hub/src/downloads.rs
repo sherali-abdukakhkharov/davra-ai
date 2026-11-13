@@ -28,10 +28,12 @@ $got = (Get-FileHash $tmp -Algorithm SHA256).Hash.ToLower()
 if (-not $want -or $got -ne $want.ToLower()) { Remove-Item $tmp -Force; throw "davra: checksum mismatch, not installing" }
 # A running davra (an open `davra claude` or MCP server) can't be overwritten, but it can be
 # renamed: move it aside, and the next session starts the new one.
+# Earlier copies that were still running at the last update go now, if they can.
+Get-ChildItem $dir -Filter 'davra.exe.*.old' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 if (Test-Path $exe) {
-  Remove-Item "$exe.old" -Force -ErrorAction SilentlyContinue
-  Move-Item -Force $exe "$exe.old"
-  Remove-Item "$exe.old" -Force -ErrorAction SilentlyContinue
+  $aside = "$exe.$([DateTime]::UtcNow.ToString('yyyyMMddHHmmss')).old"
+  Move-Item -Force $exe $aside
+  Remove-Item $aside -Force -ErrorAction SilentlyContinue
 }
 Move-Item -Force $tmp $exe
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
