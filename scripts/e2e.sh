@@ -53,7 +53,7 @@ out=$("$HUB" import-telegram mosla "$WORK/result.json")
 has "$out" "0 imported" "re-import is idempotent"
 ok "telegram export import (idempotent)"
 
-"$HUB" serve --bind "127.0.0.1:$PORT" --no-migrate --cookie-secure false >"$WORK/hub.log" 2>&1 &
+"$HUB" serve --bind "127.0.0.1:$PORT" --no-migrate --cookie-secure false --client-ip-header cf-connecting-ip >"$WORK/hub.log" 2>&1 &
 HUB_PID=$!
 trap 'kill $HUB_PID 2>/dev/null || true; rm -rf "$DAVRA_HOME" "$WORK"' EXIT
 for _ in $(seq 1 50); do curl -fs "$DAVRA_HUB/healthz" >/dev/null 2>&1 && break; sleep 0.1; done

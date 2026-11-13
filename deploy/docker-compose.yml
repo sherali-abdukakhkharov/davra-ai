@@ -31,6 +31,8 @@ services:
       DAVRA_TELEGRAM_TOKEN: ${DAVRA_TELEGRAM_TOKEN:-}
       DAVRA_PUBLIC_URL: ${DAVRA_PUBLIC_URL:-}
       DAVRA_EMBED_URL: ${DAVRA_EMBED_URL:-}       # http://embed:11434 with --profile embeddings
+      # Requests arrive only through cloudflared, so its client-IP header is trustworthy.
+      DAVRA_CLIENT_IP_HEADER: ${DAVRA_CLIENT_IP_HEADER:-cf-connecting-ip}
       RUST_LOG: ${RUST_LOG:-davra_hub=info,tower_http=warn}
     ports:
       - "127.0.0.1:${DAVRA_PORT:-8787}:8080"   # local only; the tunnel publishes it

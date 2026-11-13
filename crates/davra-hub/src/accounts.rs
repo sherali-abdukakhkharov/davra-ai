@@ -17,7 +17,7 @@ use argon2::Argon2;
 use axum::extract::{ConnectInfo, FromRequestParts, State};
 use axum::http::header::{COOKIE, SET_COOKIE, USER_AGENT};
 use axum::http::request::Parts;
-use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::Utc;
@@ -92,12 +92,15 @@ pub fn require_csrf(headers: &HeaderMap) -> AppResult<()> {
     }
 }
 
-/// Client IP: Cloudflare's header when behind the tunnel, else the socket.
-fn client_ip(headers: &HeaderMap, peer: SocketAddr) -> String {
-    headers
-        .get("cf-connecting-ip")
+/// Client IP: the trusted proxy's header when the operator configured one and
+/// it holds a valid address (first entry of a list), else the socket peer.
+fn client_ip(trusted: Option<&HeaderName>, headers: &HeaderMap, peer: SocketAddr) -> String {
+    trusted
+        .and_then(|h| headers.get(h))
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.trim().to_string())
+        .and_then(|s| s.split(',').next())
+        .and_then(|s| s.trim().parse::<std::net::IpAddr>().ok())
+        .map(|ip| ip.to_string())
         .unwrap_or_else(|| peer.ip().to_string())
 }
 
@@ -211,7 +214,10 @@ pub async fn register(
         ));
     }
     if !state.limiter.allow(
-        &format!("reg:{}", client_ip(&headers, peer)),
+        &format!(
+            "reg:{}",
+            client_ip(state.client_ip_header.as_ref(), &headers, peer)
+        ),
         REGISTER_LIMIT,
     ) {
         return Err(rate_limited());
@@ -287,7 +293,10 @@ pub async fn login(
     require_csrf(&headers)?;
     let email = req.email.trim().to_lowercase();
     let ip_ok = state.limiter.allow(
-        &format!("login-ip:{}", client_ip(&headers, peer)),
+        &format!(
+            "login-ip:{}",
+            client_ip(state.client_ip_header.as_ref(), &headers, peer)
+        ),
         LOGIN_LIMIT * 3,
     );
     let email_ok = state
@@ -370,6 +379,24 @@ pub async fn session(SessionUser(user): SessionUser) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn client_ip_trusts_header_only_when_configured() {
+        let peer: SocketAddr = "192.0.2.7:5000".parse().unwrap();
+        let cf = HeaderName::from_static("cf-connecting-ip");
+        let mut h = HeaderMap::new();
+        h.insert("cf-connecting-ip", HeaderValue::from_static("203.0.113.9"));
+        assert_eq!(client_ip(None, &h, peer), "192.0.2.7");
+        assert_eq!(client_ip(Some(&cf), &h, peer), "203.0.113.9");
+        h.insert(
+            "cf-connecting-ip",
+            HeaderValue::from_static(" 203.0.113.9, 10.0.0.1"),
+        );
+        assert_eq!(client_ip(Some(&cf), &h, peer), "203.0.113.9");
+        h.insert("cf-connecting-ip", HeaderValue::from_static("not-an-ip"));
+        assert_eq!(client_ip(Some(&cf), &h, peer), "192.0.2.7");
+        assert_eq!(client_ip(Some(&cf), &HeaderMap::new(), peer), "192.0.2.7");
+    }
 
     #[test]
     fn emails() {

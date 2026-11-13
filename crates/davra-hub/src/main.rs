@@ -37,6 +37,8 @@ pub struct AppState {
     pub public_url: Option<String>,
     /// Prebuilt davra binaries + SHA256SUMS, served under /downloads.
     pub downloads_dir: Option<std::path::PathBuf>,
+    /// Header carrying the real client IP (set by a trusted proxy). None: the socket peer.
+    pub client_ip_header: Option<axum::http::HeaderName>,
 }
 
 #[derive(Parser)]
@@ -84,6 +86,11 @@ enum Cmd {
         /// Directory with prebuilt davra binaries and SHA256SUMS.
         #[arg(long, env = "DAVRA_DOWNLOADS_DIR")]
         downloads_dir: Option<std::path::PathBuf>,
+        /// Take the client IP from this header, e.g. cf-connecting-ip behind a Cloudflare
+        /// tunnel. Only set it when every request comes through that proxy: anyone who
+        /// reaches the hub directly can forge it and dodge the login rate limits.
+        #[arg(long, env = "DAVRA_CLIENT_IP_HEADER")]
+        client_ip_header: Option<String>,
     },
     /// Apply database migrations and exit.
     Migrate,
@@ -277,7 +284,20 @@ async fn main() -> Result<()> {
             embed_model,
             public_url,
             downloads_dir,
+            client_ip_header,
         } => {
+            let client_ip_header = match client_ip_header
+                .as_deref()
+                .map(str::trim)
+                .filter(|h| !h.is_empty())
+            {
+                Some(h) => Some(
+                    axum::http::HeaderName::try_from(h.to_ascii_lowercase()).with_context(
+                        || format!("DAVRA_CLIENT_IP_HEADER: bad header name {h:?}"),
+                    )?,
+                ),
+                None => None,
+            };
             if !no_migrate {
                 migrate(&pool).await?;
             }
@@ -318,6 +338,7 @@ async fn main() -> Result<()> {
                 embedder,
                 public_url: public_url.map(|u| u.trim_end_matches('/').to_string()),
                 downloads_dir: downloads_dir.filter(|d| d.join("SHA256SUMS").is_file()),
+                client_ip_header,
             });
             let listener = tokio::net::TcpListener::bind(&bind)
                 .await
