@@ -1,7 +1,7 @@
 [package]
 name = "davra-desktop"
 description = "Davra Desktop: connect this machine's AI coding agents to your team's Davra hub"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/sherali-abdukakhkharov/davra-ai"
