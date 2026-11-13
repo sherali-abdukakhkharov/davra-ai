@@ -400,8 +400,8 @@ mod tests {
 
     #[test]
     fn emails() {
-        assert!(valid_email("ali@qitmir.uz"));
-        assert!(!valid_email("ali@localhost"));
+        assert!(valid_email("lead@example.uz"));
+        assert!(!valid_email("lead@localhost"));
         assert!(!valid_email("no-at.uz"));
         assert!(!valid_email("a b@x.uz"));
     }

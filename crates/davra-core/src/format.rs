@@ -33,7 +33,7 @@ fn trust_tag(t: Trust) -> &'static str {
     t.as_str()
 }
 
-/// `#123 11-12 14:03 gulom [peer_human] re#120 @lionali-ai: text`
+/// `#123 11-12 14:03 backend [peer_human] re#120 @frontend-ai: text`
 pub fn message_line(m: &MessageView, body_max: usize) -> String {
     let mut s = format!(
         "#{} {} {} [{}]",
@@ -136,7 +136,7 @@ pub fn brief_text(b: &Brief) -> String {
     out
 }
 
-/// `#12 MOS-032 ui-kit→architect 11-02 [open]: What changed: …`
+/// `#12 ATL-032 ui-kit→architect 11-02 [open]: What changed: …`
 pub fn handoff_line(h: &HandoffView, body_max: usize) -> String {
     let ticket = h
         .ticket
@@ -287,7 +287,7 @@ mod tests {
         MessageView {
             id,
             created_at: Utc.with_ymd_and_hms(2026, 11, 12, 14, 3, 0).unwrap(),
-            author: "gulom".into(),
+            author: "backend".into(),
             author_kind: Some(MemberKind::Human),
             trust,
             kind: "chat".into(),
@@ -301,7 +301,7 @@ mod tests {
     #[test]
     fn line_is_compact() {
         let l = message_line(&msg(7, "salom\n\n  dunyo", Trust::PeerHuman), 100);
-        assert_eq!(l, "#7 11-12 14:03 gulom [peer_human]: salom dunyo");
+        assert_eq!(l, "#7 11-12 14:03 backend [peer_human]: salom dunyo");
     }
 
     #[test]
@@ -313,7 +313,7 @@ mod tests {
     #[test]
     fn empty_hook_inbox_adds_nothing() {
         let i = Inbox {
-            project: "mosla".into(),
+            project: "atlas".into(),
             messages: vec![],
             cursor: 0,
             more: false,
@@ -327,15 +327,15 @@ mod tests {
         let recent: Vec<MessageView> = (1..=200).map(|i| msg(i, &long, Trust::PeerAgent)).collect();
         let b = Brief {
             project: ProjectRef {
-                slug: "mosla".into(),
+                slug: "atlas".into(),
                 name: None,
                 role: "agent".into(),
             },
             me: MemberRef {
-                handle: "lionali-ai".into(),
+                handle: "frontend-ai".into(),
                 kind: MemberKind::Agent,
                 display_name: None,
-                owner: Some("lionali".into()),
+                owner: Some("frontend".into()),
                 roles: vec![],
             },
             members: vec![],
@@ -354,7 +354,7 @@ mod tests {
     fn handoff_line_is_compact() {
         let h = HandoffView {
             id: 12,
-            ticket: Some("MOS-032".into()),
+            ticket: Some("ATL-032".into()),
             from: "ui-kit".into(),
             to: vec!["architect".into()],
             status: "open".into(),
@@ -367,7 +367,7 @@ mod tests {
         };
         assert_eq!(
             handoff_line(&h, 100),
-            "#12 MOS-032 ui-kit→architect 11-02 [open]: What changed: tokens v2."
+            "#12 ATL-032 ui-kit→architect 11-02 [open]: What changed: tokens v2."
         );
     }
 }

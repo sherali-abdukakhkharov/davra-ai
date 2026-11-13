@@ -5,8 +5,8 @@
 //! outside sources. GitHub pushes, PRs and passing CI runs collect in one
 //! digest card that is edited as events arrive; failures get their own card.
 //!
-//! Entity detection is off, so Telegram never turns `@gulom` out of
-//! `@gulom-ai` into a link to a stranger: people with a Telegram identity are
+//! Entity detection is off, so Telegram never turns `@backend` out of
+//! `@backend-ai` into a link to a stranger: people with a Telegram identity are
 //! explicit `tg://user` mentions (they get notified), agents and unknown
 //! handles are code. Each card also carries the old plain text, sent with
 //! `sendMessage` when a project is set to plain or a rich send fails.
@@ -671,7 +671,7 @@ pub async fn preview(tg: &crate::telegram::Telegram, to: i64) -> anyhow::Result<
         },
     );
     let agent = Author {
-        handle: "lionali-ai",
+        handle: "frontend-ai",
         is_agent: true,
         display_name: None,
         owner: Some("you"),
@@ -683,55 +683,55 @@ pub async fn preview(tg: &crate::telegram::Telegram, to: i64) -> anyhow::Result<
         owner: None,
     };
     let push = GhEvent::Push {
-        branch: "MOS-113-i18n-check-windows-paths".into(),
-        who: "sherali".into(),
-        head: "MOS-113: i18n-lang-check normalises paths to /".into(),
+        branch: "ATL-113-i18n-check-windows-paths".into(),
+        who: "devops".into(),
+        head: "ATL-113: i18n-lang-check normalises paths to /".into(),
         commits: 3,
         compare: "https://github.com/example/repo/compare/56da94b...a3f9c21".into(),
     };
     let pr = GhEvent::Pr {
         number: 40,
         verb: "opened",
-        who: "sherali".into(),
-        title: "MOS-113: i18n-lang-check on Windows".into(),
+        who: "devops".into(),
+        title: "ATL-113: i18n-lang-check on Windows".into(),
         url: "https://github.com/example/repo/pull/40".into(),
     };
     let ci = GhEvent::Ci {
         name: "ci".into(),
         mark: "FAILED".into(),
-        branch: "MOS-113-i18n-check-windows-paths".into(),
+        branch: "ATL-113-i18n-check-windows-paths".into(),
         url: "https://github.com/example/repo/actions/runs/1".into(),
         run_number: Some(214),
         sha: "a3f9c21".into(),
-        actor: "sherali".into(),
-        head: "MOS-113: i18n-lang-check normalises paths to /".into(),
+        actor: "devops".into(),
+        head: "ATL-113: i18n-lang-check normalises paths to /".into(),
     };
     let now = chrono::Utc::now().timestamp();
     let cards = [
         post(
             lang,
             &agent,
-            "Yangiliklar: 1) PR #37 (MOS-052) merge bo'ldi, CI 20/20. `DATA_MASTER_KEYS` qo'shildi, @gulom-ai rahmat. 2) PR #39 ochildi: MOS-052 ni done qilish. 3) MOS-113 ni olaman, raqamni band qilmanglar.",
+            "Yangiliklar: 1) PR #37 (ATL-052) merge bo'ldi, CI 20/20. `DATA_MASTER_KEYS` qo'shildi, @backend-ai rahmat. 2) PR #39 ochildi: ATL-052 ni done qilish. 3) ATL-113 ni olaman, raqamni band qilmanglar.",
             &people,
         ),
-        post(lang, &human, "@lionali-ai rahmat 👍 MOS-113 seniki. @you, kalitni 1Password'ga ham qo'sh.", &people),
-        digest(lang, "mosla", &[(now - 120, digest_line(lang, &push)), (now - 60, digest_line(lang, &pr))]),
+        post(lang, &human, "@frontend-ai rahmat 👍 ATL-113 seniki. @you, kalitni 1Password'ga ham qo'sh.", &people),
+        digest(lang, "atlas", &[(now - 120, digest_line(lang, &push)), (now - 60, digest_line(lang, &pr))]),
         ci_failed(lang, &ci).expect("a CI event"),
         handoff_new(
             lang,
             12,
-            Some("MOS-113"),
-            "lionali-ai",
-            &["gulom-ai".to_string()],
+            Some("ATL-113"),
+            "frontend-ai",
+            &["backend-ai".to_string()],
             "Windows yo'l tuzatishini review qilib, staging'da i18n-lang-check'ni bir marta ishga tushir.\nPR #40. Natija 0 bo'lishi kerak.",
             &people,
         ),
-        handoff_done(lang, 12, Some("MOS-113"), "gulom-ai", "staging'da 0 ta topilma, PR #40 approve qilindi.", &people),
+        handoff_done(lang, 12, Some("ATL-113"), "backend-ai", "staging'da 0 ta topilma, PR #40 approve qilindi.", &people),
         joined(lang, "you", "maintainer", &people),
         question(
             lang,
             7,
-            "lionali-ai",
+            "frontend-ai",
             "you",
             "PR #39 ni hozir merge qilaymi yoki staging smoke'ni kutaymi?",
             &["Hozir merge qil".into(), "Smoke'ni kut".into()],
@@ -752,11 +752,11 @@ mod tests {
     fn people() -> People {
         let mut p = People::new();
         p.insert(
-            "imbakirov".into(),
+            "qa_lead".into(),
             TgPerson {
-                user_id: 953176420,
-                username: Some("imbakirov".into()),
-                name: "G'ulom".into(),
+                user_id: 100000042,
+                username: Some("qa_lead".into()),
+                name: "Backend Dev".into(),
             },
         );
         p
@@ -767,22 +767,22 @@ mod tests {
         let p = people();
         assert_eq!(esc("a<b>&\"c\""), "a&lt;b&gt;&amp;&quot;c&quot;");
         let s = inline(
-            "@gulom-ai and @imbakirov: MOS-113 in `a<b>`, see https://x.io/p?a=1&b=2.",
+            "@backend-ai and @qa_lead: ATL-113 in `a<b>`, see https://x.io/p?a=1&b=2.",
             &p,
         );
-        assert!(s.contains("<code>@gulom-ai</code>"), "{s}");
+        assert!(s.contains("<code>@backend-ai</code>"), "{s}");
         assert!(
-            s.contains("<a href=\"tg://user?id=953176420\">@imbakirov</a>"),
+            s.contains("<a href=\"tg://user?id=100000042\">@qa_lead</a>"),
             "{s}"
         );
-        assert!(s.contains("<b>MOS-113</b>"), "{s}");
+        assert!(s.contains("<b>ATL-113</b>"), "{s}");
         assert!(s.contains("<code>a&lt;b&gt;</code>"), "{s}");
         assert!(s.contains("<a href=\"https://x.io/p?a=1&amp;b=2\">"), "{s}");
         assert!(s.ends_with("</a>."), "trailing dot stays text: {s}");
         assert_eq!(inline("mail a@b.uz", &p), "mail a@b.uz");
         assert_eq!(
-            inline("thanks @gulom-ai.", &p),
-            "thanks <code>@gulom-ai</code>."
+            inline("thanks @backend-ai.", &p),
+            "thanks <code>@backend-ai</code>."
         );
         assert_eq!(inline("<script>", &p), "&lt;script&gt;");
     }
@@ -791,12 +791,12 @@ mod tests {
     fn bodies_get_lists_and_paragraphs() {
         let p = People::new();
         let b = body(
-            "Yangiliklar: 1) PR #37 merge 2) PR #39 ochildi 3) MOS-113 ni olaman",
+            "Yangiliklar: 1) PR #37 merge 2) PR #39 ochildi 3) ATL-113 ni olaman",
             &p,
         );
         assert_eq!(
             b,
-            "<p>Yangiliklar:</p><ol><li>PR #37 merge</li><li>PR #39 ochildi</li><li><b>MOS-113</b> ni olaman</li></ol>"
+            "<p>Yangiliklar:</p><ol><li>PR #37 merge</li><li>PR #39 ochildi</li><li><b>ATL-113</b> ni olaman</li></ol>"
         );
         assert_eq!(body("a\nb\n\nc", &p), "<p>a<br>b</p><p>c</p>");
         assert_eq!(
@@ -814,16 +814,16 @@ mod tests {
     fn cards_have_html_and_plain() {
         let p = people();
         let a = Author {
-            handle: "lionali-ai",
+            handle: "frontend-ai",
             is_agent: true,
             display_name: None,
-            owner: Some("ali_9737"),
+            owner: Some("front_dev"),
         };
-        let c = post(Lang::Uz, &a, "salom @imbakirov", &p);
+        let c = post(Lang::Uz, &a, "salom @qa_lead", &p);
         assert!(c
             .html
-            .starts_with("<p>🤖 <b>lionali-ai</b> · <i>ali_9737 agenti</i></p>"));
-        assert_eq!(c.plain, "🤖 lionali-ai\nsalom @imbakirov");
+            .starts_with("<p>🤖 <b>frontend-ai</b> · <i>front_dev agenti</i></p>"));
+        assert_eq!(c.plain, "🤖 frontend-ai\nsalom @qa_lead");
         let ci = GhEvent::Ci {
             name: "ci".into(),
             mark: "FAILED".into(),
@@ -831,7 +831,7 @@ mod tests {
             url: "https://github.com/x/y/actions/runs/1".into(),
             run_number: Some(214),
             sha: "a3f9c21".into(),
-            actor: "sherali".into(),
+            actor: "devops".into(),
             head: "fix <paths>".into(),
         };
         let card = ci_failed(Lang::Uz, &ci).unwrap();
@@ -842,7 +842,7 @@ mod tests {
         assert!(!card.silent);
         let d = digest(
             Lang::En,
-            "mosla",
+            "atlas",
             &[(1794555900, digest_line(Lang::En, &ci))],
         );
         assert!(d.silent && d.html.contains("<tg-time unix=\"1794555900\""));

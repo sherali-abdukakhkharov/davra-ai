@@ -61,8 +61,8 @@ mod tests {
     #[test]
     fn finds_handles_in_order() {
         assert_eq!(
-            parse("@gulom-ai bugun qilib ber, @LionAli ko'rib chiq. @gulom-ai"),
-            vec!["gulom-ai", "lionali"]
+            parse("@backend-ai bugun qilib ber, @Frontend ko'rib chiq. @backend-ai"),
+            vec!["backend-ai", "frontend"]
         );
     }
 
@@ -73,12 +73,12 @@ mod tests {
 
     #[test]
     fn strips_trailing_dot() {
-        assert_eq!(parse("rahmat @lionali-ai."), vec!["lionali-ai"]);
+        assert_eq!(parse("rahmat @frontend-ai."), vec!["frontend-ai"]);
     }
 
     #[test]
     fn normalizes() {
-        assert_eq!(normalize_handle("@Gulom_AI"), Some("gulom_ai".into()));
+        assert_eq!(normalize_handle("@Backend_AI"), Some("backend_ai".into()));
         assert_eq!(normalize_handle("-bad"), None);
         assert_eq!(normalize_handle(""), None);
         assert_eq!(normalize_handle("has space"), None);

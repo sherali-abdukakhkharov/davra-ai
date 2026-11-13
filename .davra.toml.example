@@ -1,6 +1,6 @@
 # Copy to .davra.toml in your project repository and commit it. It holds no secrets.
 hub      = "https://davra.example.uz"
 org      = "shaxsiy"
-project  = "mosla"
+project  = "atlas"
 handoffs = "docs/memory/handoffs"   # optional: existing handoff convention (used from v0.2)
 topics   = ["general", "handoffs", "decisions", "ci"]

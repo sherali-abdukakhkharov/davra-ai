@@ -182,7 +182,7 @@ mod tests {
         std::fs::create_dir_all(root.join("docs/memory/handoffs")).unwrap();
         std::fs::write(
             root.join(".davra.toml"),
-            "project = \"mosla\"\nhandoffs = \"docs/memory/handoffs\"\n",
+            "project = \"atlas\"\nhandoffs = \"docs/memory/handoffs\"\n",
         )
         .unwrap();
         repo(&root).unwrap()
@@ -201,7 +201,7 @@ mod tests {
         let h = HandoffFile {
             from: "ui-kit".into(),
             to: vec!["architect".into()],
-            ticket: Some("MOS-032".into()),
+            ticket: Some("ATL-032".into()),
             status: "open".into(),
             created: Some("2026-11-02".into()),
             body: "What changed: x\nDone when: y".into(),
@@ -209,11 +209,11 @@ mod tests {
         let p = write_new(&r, &h).unwrap();
         assert_eq!(
             p,
-            "docs/memory/handoffs/2026-11-02-ui-kit-to-architect-MOS-032.md"
+            "docs/memory/handoffs/2026-11-02-ui-kit-to-architect-ATL-032.md"
         );
         // Same name again gets a suffix instead of overwriting.
         let p2 = write_new(&r, &h).unwrap();
-        assert!(p2.ends_with("MOS-032-2.md"));
+        assert!(p2.ends_with("ATL-032-2.md"));
         std::fs::write(r.dir.join("README.md"), "# not a handoff").unwrap();
         let found = scan(&r).unwrap();
         assert_eq!(found.len(), 2);

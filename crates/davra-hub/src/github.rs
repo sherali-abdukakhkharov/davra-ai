@@ -436,19 +436,19 @@ mod tests {
 
     #[test]
     fn summarizes_events() {
-        let push = json!({ "ref": "refs/heads/main", "pusher": { "name": "gulom" },
-            "commits": [{}, {}], "head_commit": { "message": "MOS-032: counter\n\nbody" } });
+        let push = json!({ "ref": "refs/heads/main", "pusher": { "name": "backend" },
+            "commits": [{}, {}], "head_commit": { "message": "ATL-032: counter\n\nbody" } });
         assert_eq!(
             summarize("push", &push).unwrap(),
-            "push to main by gulom: MOS-032: counter (+1 more)"
+            "push to main by backend: ATL-032: counter (+1 more)"
         );
         let tag = json!({ "ref": "refs/tags/v1", "commits": [{}] });
         assert!(summarize("push", &tag).is_none());
         let pr = json!({ "action": "closed", "pull_request": { "number": 12, "merged": true,
-            "user": { "login": "lionali" }, "title": "Counter", "html_url": "https://github.com/x/y/pull/12" } });
+            "user": { "login": "frontend" }, "title": "Counter", "html_url": "https://github.com/x/y/pull/12" } });
         assert_eq!(
             summarize("pull_request", &pr).unwrap(),
-            "PR #12 merged by lionali: Counter https://github.com/x/y/pull/12"
+            "PR #12 merged by frontend: Counter https://github.com/x/y/pull/12"
         );
         let ci = json!({ "action": "completed", "workflow_run": { "name": "ci", "conclusion": "failure",
             "head_branch": "main", "html_url": "https://github.com/x/y/actions/runs/1" } });
