@@ -14,6 +14,9 @@ pub struct Config {
     pub hub: Option<String>,
     /// Used when the current directory has no `.davra.toml`.
     pub default_project: Option<String>,
+    /// Repositories linked from Davra Desktop.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repos: Vec<PathBuf>,
 }
 
 pub fn dir() -> Result<PathBuf> {

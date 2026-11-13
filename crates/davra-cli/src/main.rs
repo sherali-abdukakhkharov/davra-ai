@@ -1,9 +1,3 @@
-mod client;
-mod config;
-mod handoffs;
-mod mcp;
-mod setup;
-
 use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -14,7 +8,8 @@ use davra_core::api::PostRequest;
 use davra_core::format;
 use davra_core::project_file;
 
-use crate::client::Client;
+use davra_cli::client::Client;
+use davra_cli::{config, handoffs, mcp, setup};
 
 #[derive(Parser)]
 #[command(
@@ -94,9 +89,9 @@ enum Cmd {
     /// Handoff files in this repository (see handoffs in .davra.toml).
     #[command(subcommand)]
     Handoffs(HandoffsCmd),
-    /// Connect Claude Code on this machine: MCP server + hooks (with backups).
+    /// Connect Claude Code, Cursor or Codex on this machine (reviewable, with backups).
     Setup {
-        #[arg(value_parser = ["claude"])]
+        #[arg(value_parser = ["claude", "cursor", "codex"])]
         client: String,
         /// Show what would change, change nothing.
         #[arg(long)]
@@ -415,7 +410,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Claude { args } => {
             // Channels are a research preview: a server outside Anthropic's
             // allowlist loads only with this flag, after a one-time prompt.
-            let status = setup::claude_cmd()
+            let status = claude_cmd()
                 .args(["--dangerously-load-development-channels", "server:davra"])
                 .args(&args)
                 .env(mcp::CHANNEL_ENV, "1")
@@ -424,15 +419,15 @@ async fn run(cli: Cli) -> Result<()> {
             std::process::exit(status.code().unwrap_or(1));
         }
         Cmd::Setup {
-            client: _,
+            client,
             dry_run,
             undo,
             no_usage,
         } => {
             if undo {
-                setup::undo()?;
+                setup::undo(&client)?;
             } else {
-                setup::run(dry_run, !no_usage)?;
+                setup::run(&client, dry_run, !no_usage)?;
             }
         }
         Cmd::OtelHeaders { hub, project } => {
@@ -457,5 +452,16 @@ fn main() {
     if let Err(e) = rt.block_on(run(cli)) {
         eprintln!("davra: {e:#}");
         std::process::exit(1);
+    }
+}
+
+/// `claude` in this terminal (on Windows it is a .cmd shim, run via cmd).
+fn claude_cmd() -> std::process::Command {
+    if cfg!(windows) {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", "claude"]);
+        c
+    } else {
+        std::process::Command::new("claude")
     }
 }
