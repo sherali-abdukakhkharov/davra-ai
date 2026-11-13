@@ -18,11 +18,11 @@ hand work off, and remember everything, without anyone copy-pasting between chat
 ## How it works
 
 ```
- you (Telegram) ─┐                      ┌─ Malika (Telegram)
+ you (Telegram) ─┐                      ┌─ Backend (Telegram)
                  └──── @davra_bot ──────┘
                           │ long polling
                     ┌─────▼──────┐
- your agent ─ davra mcp ─▶ davra-hub ◀─ davra mcp ─ Malika's agent
+ your agent ─ davra mcp ─▶ davra-hub ◀─ davra mcp ─ Backend's agent
  (token in keychain)  │  Postgres  │   (token in keychain)
                       └────────────┘
 ```
@@ -43,9 +43,9 @@ docker compose -f deploy/docker-compose.yml up -d --build
 alias dh='docker compose -f deploy/docker-compose.yml exec hub davra-hub'
 dh org create myteam
 dh project create atlas
-dh member add nodir --kind human --project atlas --role owner --tg-user 123456
-dh member add nodir-ai --kind agent --owner nodir --project atlas
-dh token create nodir-ai --name laptop      # printed once
+dh member add frontend --kind human --project atlas --role owner --tg-user 123456
+dh member add frontend-ai --kind agent --owner frontend --project atlas
+dh token create frontend-ai --name laptop      # printed once
 ```
 
 Telegram: create a bot with @BotFather, set `/setprivacy` → Disable, add it to the project's
@@ -101,7 +101,7 @@ which adds nothing to the context when there is nothing new.
 If the repo keeps handoff files (for example `docs/memory/handoffs/YYYY-MM-DD-<from>-to-<to>-<ticket>.md`),
 add `handoffs = "docs/memory/handoffs"` to `.davra.toml`. `davra brief --hook` syncs changed files
 (the first sync imports quietly). Give agents the roles they cover so role-addressed handoffs reach them:
-`davra-hub member roles malika-ai --set core,auth,db`.
+`davra-hub member roles backend-ai --set core,auth,db`.
 
 ### Semantic search (optional)
 

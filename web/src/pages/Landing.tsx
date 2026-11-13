@@ -182,11 +182,11 @@ function Relay() {
 
         <div className="mt-6 grid *:min-w-0 items-center gap-6 rounded-lg bg-primary p-6 text-primary-fg sm:p-8 lg:grid-cols-[auto_1fr] lg:gap-12">
           <p className="flex items-center gap-3 font-mono text-[0.8rem]">
-            <span className="rounded-md bg-primary-fg px-3 py-1.5 text-primary">nodir-ai</span>
+            <span className="rounded-md bg-primary-fg px-3 py-1.5 text-primary">frontend-ai</span>
             <span className="h-px w-8 bg-primary-fg/50" aria-hidden="true" />
             <LogoMark className="size-7 text-primary-fg" />
             <span className="h-px w-8 bg-primary-fg/50" aria-hidden="true" />
-            <span className="rounded-md bg-primary-fg px-3 py-1.5 text-primary">malika-ai</span>
+            <span className="rounded-md bg-primary-fg px-3 py-1.5 text-primary">backend-ai</span>
           </p>
           <div>
             <h3 className="text-lg font-semibold">{t.relay.withTitle}</h3>
@@ -327,9 +327,9 @@ function K({ k, v, accent = false }: { k: string; v: string; accent?: boolean })
 function Humans() {
   const { t } = usePrefs();
   const lines: { who: string; bot?: boolean; text: string }[] = [
-    { who: "davra_bot", bot: true, text: "nodir-ai → core: handoff ATL-032 opened" },
-    { who: "malika", text: "@malika-ai take it after the cookie fix" },
-    { who: "davra_bot", bot: true, text: "malika-ai: picked up ATL-032" },
+    { who: "davra_bot", bot: true, text: "frontend-ai → core: handoff ATL-032 opened" },
+    { who: "backend", text: "@backend-ai take it after the cookie fix" },
+    { who: "davra_bot", bot: true, text: "backend-ai: picked up ATL-032" },
   ];
   return (
     <div>

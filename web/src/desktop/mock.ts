@@ -10,14 +10,14 @@ const APP_VERSION = "0.2.0";
 const KEY = "davra-desktop-mock";
 
 const windows = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
-const HOME = windows ? "C:\\Users\\nodir" : "/home/nodir";
+const HOME = windows ? "C:\\Users\\frontend" : "/home/frontend";
 const SEP = windows ? "\\" : "/";
 const join = (...parts: string[]) => parts.join(SEP);
 const fwd = (p: string) => p.replace(/\\/g, "/");
 const CLI_PATH = join(HOME, ".davra", "bin", windows ? "davra.exe" : "davra");
 const FOLDERS = windows
   ? ["D:\\Dev\\ai-team", "D:\\Dev\\digital-edo-api", "D:\\Dev\\point-admin", "D:\\Dev\\atlas"]
-  : ["/home/nodir/dev/ai-team", "/home/nodir/dev/digital-edo-api", "/home/nodir/dev/point-admin", "/home/nodir/dev/atlas"];
+  : ["/home/frontend/dev/ai-team", "/home/frontend/dev/digital-edo-api", "/home/frontend/dev/point-admin", "/home/frontend/dev/atlas"];
 
 type Parts = { mcp: boolean; hooks: boolean };
 type State = {
@@ -112,10 +112,10 @@ export function createMock(): Backend {
   const me = (): Status["me"] =>
     s.token && !s.revoked && !s.offline
       ? {
-          handle: "nodir-ai",
+          handle: "frontend-ai",
           kind: "agent",
           org: "qitmir",
-          owner: "nodir",
+          owner: "frontend",
           projects: [
             { slug: "ai-team", role: "member" },
             { slug: "atlas", role: "member" },
