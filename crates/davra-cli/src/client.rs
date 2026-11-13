@@ -106,6 +106,27 @@ impl Client {
         .await
     }
 
+    /// Long-poll: the hub holds the request while the inbox is empty, up to `wait`.
+    pub async fn inbox_wait(&self, project: &str, limit: i64, wait: Duration) -> Result<Inbox> {
+        let resp = self
+            .http
+            .get(format!(
+                "{}/api/v1/projects/{}/inbox",
+                self.hub,
+                enc(project)
+            ))
+            .bearer_auth(&self.token)
+            .query(&[
+                ("limit", limit.to_string()),
+                ("wait", wait.as_secs().to_string()),
+            ])
+            .timeout(wait + Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|e| anyhow!("could not reach {}: {e}", self.hub))?;
+        self.handle(resp).await
+    }
+
     pub async fn ack(&self, project: &str, up_to: i64) -> Result<AckResponse> {
         self.post(
             &format!("/api/v1/projects/{}/ack", enc(project)),

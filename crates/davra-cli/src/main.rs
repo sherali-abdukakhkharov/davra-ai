@@ -59,8 +59,18 @@ enum Cmd {
         /// Hook mode: print nothing when empty, mark printed messages as read.
         #[arg(long)]
         hook: bool,
+        /// With --hook, as a Stop hook: new messages keep the agent going
+        /// instead of waiting for the next prompt.
+        #[arg(long, requires = "hook")]
+        stop: bool,
         #[arg(long)]
         project: Option<String>,
+    },
+    /// Start Claude Code with live Davra messages (loads davra as a development channel).
+    Claude {
+        /// Passed on to `claude`, e.g. --resume.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
     /// Post a message to the room.
     Post {
@@ -120,11 +130,16 @@ enum HandoffsCmd {
     },
 }
 
-/// Hooks receive JSON on stdin; we only need `cwd` from it.
+/// Hooks receive JSON on stdin; we need `cwd` from it.
 fn hook_cwd() -> PathBuf {
+    hook_input().0
+}
+
+/// The hook's working directory and its whole stdin document (Null if none).
+fn hook_input() -> (PathBuf, serde_json::Value) {
     let fallback = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     if std::io::stdin().is_terminal() {
-        return fallback;
+        return (fallback, serde_json::Value::Null);
     }
     let mut buf = String::new();
     if std::io::stdin()
@@ -132,12 +147,11 @@ fn hook_cwd() -> PathBuf {
         .read_to_string(&mut buf)
         .is_err()
     {
-        return fallback;
+        return (fallback, serde_json::Value::Null);
     }
-    serde_json::from_str::<serde_json::Value>(&buf)
-        .ok()
-        .and_then(|v| v.get("cwd").and_then(|c| c.as_str()).map(PathBuf::from))
-        .unwrap_or(fallback)
+    let v = serde_json::from_str::<serde_json::Value>(&buf).unwrap_or_default();
+    let cwd = v["cwd"].as_str().map(PathBuf::from).unwrap_or(fallback);
+    (cwd, v)
 }
 
 fn client_for(cwd: &std::path::Path, timeout: Duration) -> Result<(Client, config::Target)> {
@@ -280,13 +294,26 @@ async fn run(cli: Cli) -> Result<()> {
                 print!("{}", brief(cwd, project, Duration::from_secs(15)).await?);
             }
         }
-        Cmd::Inbox { hook, project } => {
+        Cmd::Inbox {
+            hook,
+            stop,
+            project,
+        } => {
             if hook {
-                let cwd = hook_cwd();
+                let (cwd, input) = hook_input();
                 if project.is_none() && project_file::find(&cwd).is_none() {
                     return Ok(());
                 }
+                // A live channel already delivered everything; and a Stop hook
+                // that fired once in a row lets the agent rest (no endless turns).
+                if stop && (mcp::channel_mode() || input["stop_hook_active"] == true) {
+                    return Ok(());
+                }
                 match inbox(cwd, project, true, Duration::from_secs(3)).await {
+                    Ok(t) if stop && !t.is_empty() => println!(
+                        "{}",
+                        serde_json::json!({ "decision": "block", "reason": t })
+                    ),
                     Ok(t) => print!("{t}"),
                     Err(e) => eprintln!("davra: inbox unavailable: {e:#}"),
                 }
@@ -372,6 +399,17 @@ async fn run(cli: Cli) -> Result<()> {
                 .handoffs(&p, &status, if all { "all" } else { "me" })
                 .await?;
             print!("{}", format::handoffs_text(&l));
+        }
+        Cmd::Claude { args } => {
+            // Channels are a research preview: a server outside Anthropic's
+            // allowlist loads only with this flag, after a one-time prompt.
+            let status = setup::claude_cmd()
+                .args(["--dangerously-load-development-channels", "server:davra"])
+                .args(&args)
+                .env(mcp::CHANNEL_ENV, "1")
+                .status()
+                .context("Claude Code (`claude`) was not found on PATH; install it first")?;
+            std::process::exit(status.code().unwrap_or(1));
         }
         Cmd::Setup {
             client: _,

@@ -1,7 +1,7 @@
 //! `davra setup claude`: connects Claude Code to Davra on this machine.
 //!
 //! 1. Registers the MCP server for all projects (`claude mcp add --scope user`).
-//! 2. Adds the SessionStart / UserPromptSubmit hooks to `~/.claude/settings.json`.
+//! 2. Adds the SessionStart / UserPromptSubmit / Stop hooks to `~/.claude/settings.json`.
 //!
 //! Safe to run again: nothing is added twice. Every file is backed up to
 //! `~/.davra/backups/` before it changes, and the changes are listed first.
@@ -16,8 +16,8 @@ use crate::config;
 
 pub struct Plan {
     pub settings_path: PathBuf,
-    pub add_session_start: bool,
-    pub add_prompt_submit: bool,
+    /// Hook events that have no Davra hook yet.
+    pub missing: Vec<&'static str>,
     pub mcp_present: bool,
     exe: String,
 }
@@ -44,7 +44,15 @@ fn has_davra_hook(settings: &Value, event: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Adds the two hooks to a settings document, leaving everything else alone.
+/// The hooks Davra installs: event, `davra` arguments, timeout in seconds.
+/// The Stop hook keeps a finished agent going when new messages are waiting.
+const HOOKS: [(&str, &str, u32); 3] = [
+    ("SessionStart", "brief --hook", 20),
+    ("UserPromptSubmit", "inbox --hook", 10),
+    ("Stop", "inbox --hook --stop", 10),
+];
+
+/// Adds the hooks to a settings document, leaving everything else alone.
 pub fn merge_hooks(settings: &mut Value, exe: &str) {
     if !settings.is_object() {
         *settings = json!({});
@@ -61,13 +69,9 @@ pub fn merge_hooks(settings: &mut Value, exe: &str) {
         list.push(json!({ "hooks": [{ "type": "command", "command": cmd, "timeout": timeout }] }));
         s["hooks"][event] = Value::Array(list);
     };
-    add(settings, "SessionStart", format!("{exe} brief --hook"), 20);
-    add(
-        settings,
-        "UserPromptSubmit",
-        format!("{exe} inbox --hook"),
-        10,
-    );
+    for (event, args, timeout) in HOOKS {
+        add(settings, event, format!("{exe} {args}"), timeout);
+    }
 }
 
 fn claude_settings_path() -> Result<PathBuf> {
@@ -92,7 +96,7 @@ fn read_settings(p: &Path) -> Result<Value> {
         .with_context(|| format!("{} is not valid JSON; fix it first", p.display()))
 }
 
-fn claude_cmd() -> Command {
+pub(crate) fn claude_cmd() -> Command {
     // On Windows `claude` is a .cmd shim, which needs the shell to run.
     if cfg!(windows) {
         let mut c = Command::new("cmd");
@@ -116,8 +120,11 @@ pub fn plan() -> Result<Plan> {
     let settings_path = claude_settings_path()?;
     let settings = read_settings(&settings_path)?;
     Ok(Plan {
-        add_session_start: !has_davra_hook(&settings, "SessionStart"),
-        add_prompt_submit: !has_davra_hook(&settings, "UserPromptSubmit"),
+        missing: HOOKS
+            .iter()
+            .map(|h| h.0)
+            .filter(|e| !has_davra_hook(&settings, e))
+            .collect(),
         mcp_present: mcp_registered()?,
         settings_path,
         exe,
@@ -152,21 +159,27 @@ pub fn run(dry_run: bool) -> Result<()> {
             "+ claude mcp add --scope user davra -- <davra> mcp"
         }
     );
-    let hooks = match (p.add_session_start, p.add_prompt_submit) {
-        (false, false) => "already present (kept)".to_string(),
-        (a, b) => {
-            let mut parts = vec![];
-            if a {
-                parts.push("SessionStart: davra brief --hook");
-            }
-            if b {
-                parts.push("UserPromptSubmit: davra inbox --hook");
-            }
-            format!("+ {} in {}", parts.join(", "), p.settings_path.display())
-        }
+    let hooks = if p.missing.is_empty() {
+        "already present (kept)".to_string()
+    } else {
+        let parts: Vec<String> = HOOKS
+            .iter()
+            .filter(|h| p.missing.contains(&h.0))
+            .map(|(event, args, _)| format!("{event}: davra {args}"))
+            .collect();
+        format!("+ {} in {}", parts.join(", "), p.settings_path.display())
     };
     println!("  hooks:    {hooks}");
     println!("  Hooks only speak inside repositories with a .davra.toml.");
+    let cwd = std::env::current_dir()?;
+    if davra_core::project_file::find(&cwd).is_none() {
+        println!(
+            "\n  Note: {} has no .davra.toml, so Davra stays silent here.\n  \
+             Commit one at the repository root (no secrets in it):\n    \
+             hub     = \"https://your-hub\"\n    org     = \"your-org\"\n    project = \"your-project\"",
+            cwd.display()
+        );
+    }
     if dry_run {
         println!("\n--dry-run: nothing changed.");
         return Ok(());
@@ -183,7 +196,7 @@ pub fn run(dry_run: bool) -> Result<()> {
             bail!("`claude mcp add` failed");
         }
     }
-    if p.add_session_start || p.add_prompt_submit {
+    if !p.missing.is_empty() {
         let mut settings = read_settings(&p.settings_path)?;
         if let Some(b) = backup(&p.settings_path)? {
             println!("  backup:   {}", b.display());
@@ -198,6 +211,8 @@ pub fn run(dry_run: bool) -> Result<()> {
         )?;
     }
     println!("\nDone. Open a new Claude Code session in a repo with a .davra.toml.");
+    println!("For live messages (they reach the agent even while it waits), start it with:");
+    println!("  davra claude");
     Ok(())
 }
 
@@ -207,7 +222,7 @@ pub fn undo() -> Result<()> {
     let mut settings = read_settings(&path)?;
     let mut changed = false;
     if let Some(hooks) = settings["hooks"].as_object_mut() {
-        for event in ["SessionStart", "UserPromptSubmit"] {
+        for event in HOOKS.map(|h| h.0) {
             if let Some(groups) = hooks.get_mut(event).and_then(Value::as_array_mut) {
                 let before = groups.len();
                 groups.retain(|g| {
@@ -258,6 +273,10 @@ mod tests {
         assert_eq!(
             s["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"],
             "C:/u/.davra/bin/davra.exe inbox --hook"
+        );
+        assert_eq!(
+            s["hooks"]["Stop"][0]["hooks"][0]["command"],
+            "C:/u/.davra/bin/davra.exe inbox --hook --stop"
         );
         // Idempotent.
         let once = s.clone();

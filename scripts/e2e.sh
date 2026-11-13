@@ -242,6 +242,38 @@ has "$mcp_out" "MOS-032" "tools/call history_search"
 has "$mcp_out" "you are @gulom-ai" "tools/call team_brief"
 has "$mcp_out" "Davra connects you" "server instructions"
 ok "initialize, tools/list (12 tools), tools/call"
+[[ "$mcp_out" != *'claude/channel'* ]] || fail "plain davra mcp must not claim to be a channel"
+
+echo "== live channel"
+ack_all() { curl -fs -X POST -H "Authorization: Bearer $1" -H 'content-type: application/json' -d '{"up_to":1000000}' \
+  "$DAVRA_HUB/api/v1/projects/mosla/ack" >/dev/null; }
+say() { curl -fs -X POST -H "Authorization: Bearer $T_LI" -H 'content-type: application/json' \
+  -d "{\"text\":\"$1\"}" "$DAVRA_HUB/api/v1/projects/mosla/messages" >/dev/null; }
+ack_all "$T_GAI"
+ch_out=$( (
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"e2e","version":"0"}}}'
+  sleep 0.5
+  printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+  sleep 1.5
+  say "@gulom-ai channel test"
+  sleep 3
+) | (cd "$REPO" && DAVRA_CHANNEL=1 DAVRA_TOKEN="$T_GAI" timeout 12 "$CLI" mcp 2>"$WORK/ch.err") || true)
+has "$ch_out" '"claude/channel"' "channel capability declared"
+has "$ch_out" '"method":"notifications/claude/channel"' "message pushed into the session"
+has "$ch_out" 'channel test' "pushed content"
+has "$(as "$T_GAI" inbox --project mosla)" "No unread" "pushed messages count as read"
+# Stop hook: waiting messages keep a finished agent going, once in a row.
+say "@gulom-ai stop hook test"
+out=$(printf '{"cwd":"%s","stop_hook_active":false}' "$REPO" | DAVRA_TOKEN="$T_GAI" "$CLI" inbox --hook --stop)
+has "$out" '"decision":"block"' "stop hook blocks with new messages"
+has "$out" 'stop hook test' "stop hook hands the messages over"
+out=$(printf '{"cwd":"%s","stop_hook_active":false}' "$REPO" | DAVRA_TOKEN="$T_GAI" "$CLI" inbox --hook --stop)
+[ -z "$out" ] || fail "stop hook with nothing new must stay silent, got: $out"
+say "@gulom-ai one more"
+out=$(printf '{"cwd":"%s","stop_hook_active":true}' "$REPO" | DAVRA_TOKEN="$T_GAI" "$CLI" inbox --hook --stop)
+[ -z "$out" ] || fail "stop hook must let a continued agent rest, got: $out"
+ack_all "$T_GAI"
+ok "davra mcp as a channel pushes new messages live; Stop hook delivers between turns without looping"
 
 echo "== ask_owner"
 out=$(mcp "$T_LAI" '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ask_owner","arguments":{"question":"MOS-032 ni main ga merge qilaymi?","options":["Ha, merge qil","Yo'\''q, kut"]}}}')
