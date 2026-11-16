@@ -17,6 +17,7 @@ mod team;
 mod telegram;
 mod tgcard;
 mod tgexport;
+mod tggroup;
 mod trust;
 mod usage;
 mod webapp;
@@ -426,6 +427,7 @@ async fn main() -> Result<()> {
             let telegram = match telegram_token.filter(|t| !t.trim().is_empty()) {
                 Some(t) => {
                     let tg = Arc::new(telegram::Telegram::connect(t.trim()).await?);
+                    tg.load_threads(&pool).await?;
                     tokio::spawn(tg.clone().run_poller(pool.clone()));
                     Some(tg)
                 }
