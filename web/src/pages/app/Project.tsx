@@ -1,17 +1,19 @@
 import { ArrowLeft, Send } from "lucide-react";
+import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { AgentsTab } from "@/components/app/AgentsTab";
 import { HandoffsTab } from "@/components/app/HandoffsTab";
 import { MembersTab } from "@/components/app/MembersTab";
 import { RoomTab } from "@/components/app/RoomTab";
 import { SearchTab } from "@/components/app/SearchTab";
+import { TelegramGroup } from "@/components/app/TelegramGroup";
 import { UsageTab } from "@/components/app/UsageTab";
 import { ErrorPanel, RoleBadge, Skeleton } from "@/components/app/States";
 import { useResource } from "@/components/app/useResource";
 import { useFormat } from "@/lib/format";
 import { usePrefs } from "@/lib/prefs";
 import { cn } from "@/lib/utils";
-import { web, type Member, type ProjectDetail } from "@/lib/web";
+import { isAdmin, web, type Member, type ProjectDetail } from "@/lib/web";
 import { shell } from "./Overview";
 
 const TABS = ["room", "search", "handoffs", "members", "agents", "usage"] as const;
@@ -26,6 +28,10 @@ export default function Project() {
   const tab: Tab = (TABS as readonly string[]).includes(raw ?? "") ? (raw as Tab) : "room";
   const res = useResource((s) => web.project(org, slug, s), [org, slug]);
   const d = res.data;
+  const here = `${org}/${slug}`;
+  // The room offers linking a group only while there is none; once used, it stays for this visit.
+  const [tgInRoom, setTgInRoom] = useState<string | null>(null);
+  const showTgInRoom = Boolean(d) && (tgInRoom === here || (!d?.project.telegram && isAdmin(d?.project.role ?? "")));
 
   const onMember = (m: Member) =>
     res.setData((prev) => {
@@ -86,7 +92,20 @@ export default function Project() {
             <Skeleton className="h-72" />
           </div>
         ) : tab === "room" ? (
-          <RoomTab key={`${org}/${slug}`} project={d.project} initial={d.messages} members={d.members} onPosted={() => void res.reload({ quiet: true })} />
+          <div className="flex flex-col gap-6">
+            {showTgInRoom ? (
+              <TelegramGroup
+                key={here}
+                project={d.project}
+                placement="room"
+                onChanged={() => {
+                  setTgInRoom(here);
+                  void res.reload({ quiet: true });
+                }}
+              />
+            ) : null}
+            <RoomTab key={here} project={d.project} initial={d.messages} members={d.members} onPosted={() => void res.reload({ quiet: true })} />
+          </div>
         ) : tab === "search" ? (
           <SearchTab org={org} slug={slug} />
         ) : tab === "usage" ? (
@@ -94,12 +113,15 @@ export default function Project() {
         ) : tab === "handoffs" ? (
           <HandoffsTab handoffs={d.handoffs} />
         ) : tab === "members" ? (
-          <MembersTab
-            project={d.project}
-            members={d.members}
-            onMembers={(members) => res.setData((prev) => (prev ? { ...prev, members: members.map((x) => ({ ...x, tokens: prev.members.find((y) => y.handle === x.handle)?.tokens ?? x.tokens })) } : prev))}
-            onChanged={() => void res.reload({ quiet: true })}
-          />
+          <div className="flex flex-col gap-10">
+            <TelegramGroup key={here} project={d.project} onChanged={() => void res.reload({ quiet: true })} />
+            <MembersTab
+              project={d.project}
+              members={d.members}
+              onMembers={(members) => res.setData((prev) => (prev ? { ...prev, members: members.map((x) => ({ ...x, tokens: prev.members.find((y) => y.handle === x.handle)?.tokens ?? x.tokens })) } : prev))}
+              onChanged={() => void res.reload({ quiet: true })}
+            />
+          </div>
         ) : (
           <AgentsTab project={d.project} members={d.members} onMember={onMember} onChanged={() => void res.reload({ quiet: true })} />
         )}
@@ -134,9 +156,21 @@ function Header({ d }: { d: ProjectDetail }) {
             </span>
             <RoleBadge role={d.project.role} />
           </span>
-          <span className={cn("inline-flex items-center gap-1.5", d.project.telegram ? "text-accent" : "")}>
-            <Send className="size-3.5" aria-hidden="true" />
-            {d.project.telegram ? p.telegramOn : p.telegramOff}
+          <span
+            className={cn("inline-flex min-w-0 items-center gap-1.5", d.project.telegram ? "text-accent" : "")}
+            title={d.project.telegram && d.project.telegram_chat ? p.telegramOn : undefined}
+          >
+            <Send className="size-3.5 shrink-0" aria-hidden="true" />
+            {d.project.telegram && d.project.telegram_chat ? (
+              <span className="truncate">
+                <span className="sr-only">{p.telegramGroup}: </span>
+                {d.project.telegram_chat}
+              </span>
+            ) : d.project.telegram ? (
+              p.telegramOn
+            ) : (
+              p.telegramOff
+            )}
           </span>
         </p>
       </div>

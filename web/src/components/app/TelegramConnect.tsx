@@ -12,9 +12,9 @@ type Phase =
   | { kind: "done" }
   | { kind: "error"; message: string };
 
-const POLL_MS = 3000;
+export const POLL_MS = 3000;
 
-function mmss(ms: number) {
+export function mmss(ms: number) {
   const s = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }

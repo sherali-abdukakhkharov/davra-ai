@@ -24,6 +24,35 @@ export type Overview = { user: User; telegram: { linked: boolean }; projects: Pr
 
 export type TelegramLink = { code: string; bot: string; deep_link: string; expires_in: number };
 
+/** A forum topic in the project's Telegram group; `name` is null when the bot never learned it. */
+export type TgTopic = { id: number; name: string | null };
+
+/** The project's Telegram group, as the hub sees it. */
+export type TelegramStatus = {
+  /** Bot username without @; null means this hub has no bot. */
+  bot: string | null;
+  linked: boolean;
+  chat_title: string | null;
+  /** The group has topics. */
+  forum: boolean;
+  /** Where the bot posts; null is the whole group (General). */
+  topic: TgTopic | null;
+  /** Topics the bot has seen in this group. */
+  topics: TgTopic[];
+  /** Owner or maintainer: may link or relink. */
+  can_link: boolean;
+  /** Whoever linked it, or an owner: may change the topic or unlink. */
+  can_manage: boolean;
+  /** false: the bot is not an admin there and only sees commands; null: unknown. */
+  reads_all: boolean | null;
+};
+
+/** A one-time code for adding the bot to a group; only whoever asked for it can use it. */
+export type TelegramGroupLink = { deep_link: string; bot: string; command: string; expires_in: number };
+
+/** `{ id }` picks a topic (null = General); `{ create }` has the bot open a new one. */
+export type TelegramTopicChange = { id: number | null } | { create: string };
+
 export type Token = { id: string | number; name: string; created_at: string; last_used_at: string | null };
 
 export type Member = {
@@ -68,7 +97,16 @@ export type Handoff = {
   message_id: number | null;
 };
 
-export type ProjectRef = { org: string; slug: string; name: string; role: Role; handle: string; telegram: boolean };
+export type ProjectRef = {
+  org: string;
+  slug: string;
+  name: string;
+  role: Role;
+  handle: string;
+  telegram: boolean;
+  /** The linked Telegram group's title, when the bot saw it. */
+  telegram_chat: string | null;
+};
 
 export type ProjectDetail = {
   project: ProjectRef;
@@ -194,6 +232,10 @@ export const web = {
   setMemberRole: (org: string, slug: string, handle: string, role: Role) =>
     post<{ members: Member[] }>(`${base(org, slug)}/members/${enc(handle)}/role`, { role }),
   removeMember: (org: string, slug: string, handle: string) => post<void>(`${base(org, slug)}/members/${enc(handle)}/remove`),
+  telegramStatus: (org: string, slug: string, signal?: AbortSignal) => get<TelegramStatus>(`${base(org, slug)}/telegram`, signal),
+  telegramGroupLink: (org: string, slug: string) => post<TelegramGroupLink>(`${base(org, slug)}/telegram/link`),
+  telegramUnlink: (org: string, slug: string) => post<{ ok: true }>(`${base(org, slug)}/telegram/unlink`),
+  telegramTopic: (org: string, slug: string, body: TelegramTopicChange) => post<TelegramStatus>(`${base(org, slug)}/telegram/topic`, body),
   createProject: (input: { org: string; org_name?: string; slug: string; name: string; handle: string }) =>
     post<{ project: ProjectItem }>("/api/v1/web/projects", input),
 };
