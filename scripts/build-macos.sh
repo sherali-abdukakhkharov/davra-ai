@@ -13,8 +13,9 @@
 #   Davra_<version>_universal.app.tar.gz(.sig)   Desktop update bundle (with TAURI_SIGNING_PRIVATE_KEY)
 #   SHA256SUMS-macos
 #
-# Env: TAURI_SIGNING_PRIVATE_KEY (+ _PASSWORD) — the Desktop updater key; without it
-# no update bundle is made. CARGO_BUILD_JOBS to limit parallel jobs.
+# Desktop updater key: ~/.davra-release/updater.key (or DAVRA_UPDATER_KEY, or
+# TAURI_SIGNING_PRIVATE_KEY [+ _PASSWORD]); without it no update bundle is made.
+# CARGO_BUILD_JOBS to limit parallel jobs.
 set -euo pipefail
 
 die() { echo "build-macos: $*" >&2; exit 1; }
@@ -80,8 +81,15 @@ if [[ " ${what[*]} " == *" desktop "* ]]; then
     echo "==> installing tauri-cli 2.12.4"
     cargo install tauri-cli --version 2.12.4 --locked
   fi
+  # Same place as scripts/build-desktop.sh: the key the user copied from the hub machine.
+  key="${DAVRA_UPDATER_KEY:-$HOME/.davra-release/updater.key}"
+  if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" && -f "$key" ]]; then
+    export TAURI_SIGNING_PRIVATE_KEY="$key"
+    export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${DAVRA_UPDATER_KEY_PASSWORD:-}"
+  fi
   sign=false
   [[ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]] && sign=true
+  if $sign; then echo "==> the update bundle will be signed"; else echo "==> no updater key: .dmg only, no auto-update bundle"; fi
   # The UI is built above; "-" signs the app ad hoc (no Apple Developer ID yet).
   config="{\"build\":{\"beforeBuildCommand\":\"\"},\"bundle\":{\"createUpdaterArtifacts\":$sign,\"macOS\":{\"signingIdentity\":\"-\"}}}"
   echo "==> Davra Desktop (universal .app, .dmg)"
