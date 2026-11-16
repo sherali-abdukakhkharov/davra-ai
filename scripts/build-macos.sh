@@ -15,7 +15,8 @@
 #
 # Desktop updater key: ~/.davra-release/updater.key (or DAVRA_UPDATER_KEY, or
 # TAURI_SIGNING_PRIVATE_KEY [+ _PASSWORD]); without it no update bundle is made.
-# CARGO_BUILD_JOBS to limit parallel jobs.
+# CARGO_BUILD_JOBS to limit parallel jobs. DMG_LAYOUT=1 to arrange the .dmg window
+# through Finder (needs permission to control Finder).
 set -euo pipefail
 
 die() { echo "build-macos: $*" >&2; exit 1; }
@@ -92,8 +93,13 @@ if [[ " ${what[*]} " == *" desktop "* ]]; then
   if $sign; then echo "==> the update bundle will be signed"; else echo "==> no updater key: .dmg only, no auto-update bundle"; fi
   # The UI is built above; "-" signs the app ad hoc (no Apple Developer ID yet).
   config="{\"build\":{\"beforeBuildCommand\":\"\"},\"bundle\":{\"createUpdaterArtifacts\":$sign,\"macOS\":{\"signingIdentity\":\"-\"}}}"
+  # Tauri arranges the .dmg window by driving Finder with AppleScript. Without permission to
+  # control Finder (an agent's shell, SSH) that times out with -1712 and the build fails.
+  # CI=true makes Tauri skip it; the .dmg works the same, its icons just aren't arranged.
+  ci=true
+  [[ "${DMG_LAYOUT:-}" == 1 ]] && ci=false
   echo "==> Davra Desktop (universal .app, .dmg)"
-  (cd desktop/src-tauri && cargo tauri build --ci --target universal-apple-darwin --bundles app,dmg --config "$config")
+  (cd desktop/src-tauri && CI=$ci cargo tauri build --ci --target universal-apple-darwin --bundles app,dmg --config "$config")
   bundle=desktop/src-tauri/target/universal-apple-darwin/release/bundle
   cp "$bundle"/dmg/*.dmg "$out/Davra_${version}_universal.dmg"
   if $sign; then
