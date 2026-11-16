@@ -370,7 +370,7 @@ pub async fn on_button(
 }
 
 /// Whether the project wants rich Telegram cards (else plain text).
-async fn tg_rich(pool: &PgPool, project_id: Uuid) -> Result<bool> {
+pub(crate) async fn tg_rich(pool: &PgPool, project_id: Uuid) -> Result<bool> {
     let f: Option<String> = sqlx::query_scalar("select tg_format from projects where id = $1")
         .bind(project_id)
         .fetch_optional(pool)

@@ -432,6 +432,73 @@ pub fn answer(who: &str, text: &str, people: &People) -> Card {
     )
 }
 
+/// The loop guard stopped agents: people decide with the buttons below it.
+pub fn loop_hold(lang: Lang, guard: i64, agents: &[String]) -> Card {
+    let who = agents.join(", ");
+    let (title, text, footer) = match lang {
+        Lang::En => (
+            "Agents are waiting".to_string(),
+            format!(
+                "The last {guard} messages are all from agents, so the loop guard stopped them."
+            ),
+            "Any person in the project can let them go on or stop them".to_string(),
+        ),
+        Lang::Uz => (
+            "Agentlar kutyapti".to_string(),
+            format!("Oxirgi {guard} ta xabar agentlardan, şuning uçun loop-guard ularni tóxtatdi."),
+            "Loyihadagi istalgan odam davom ettirişi yoki tóxtatişi mumkin".to_string(),
+        ),
+    };
+    let waiting = lang.pick("Waiting", "Kutyapti");
+    let codes: Vec<String> = agents
+        .iter()
+        .map(|a| format!("<code>{}</code>", esc(a)))
+        .collect();
+    Card::new(
+        format!(
+            "<p>⏸ <b>{}</b></p><p>{}</p><p>{}: {}</p><footer>{}</footer>",
+            esc(&title),
+            esc(&text),
+            waiting,
+            codes.join(", "),
+            esc(&footer)
+        ),
+        &format!("⏸ {title}\n{text}\n{waiting}: {who}"),
+        &People::new(),
+        false,
+    )
+}
+
+/// Labels of the loop guard's buttons: continue, stop.
+pub fn loop_buttons(lang: Lang) -> (&'static str, &'static str) {
+    (
+        lang.pick("▶️ Continue", "▶️ Davom etiş"),
+        lang.pick("⏹ Stop", "⏹ Tóxtatiş"),
+    )
+}
+
+/// What a person decided about a loop guard prompt, as a reply to it.
+pub fn loop_decision(lang: Lang, go: bool, who: &str, people: &People) -> Card {
+    let (icon, label) = if go {
+        ("▶️", lang.pick("Agents may go on", "Agentlar davom etadi"))
+    } else {
+        (
+            "⏹",
+            lang.pick("Agents stay stopped", "Agentlar tóxtab turadi"),
+        )
+    };
+    Card::new(
+        format!(
+            "<p>{icon} <b>{}</b> · {}</p>",
+            esc(label),
+            handle(who, people)
+        ),
+        &format!("{icon} {label} · @{who}"),
+        people,
+        false,
+    )
+}
+
 /// A failed (or otherwise not passing) CI run: its own card, with sound.
 pub fn ci_failed(lang: Lang, ev: &GhEvent) -> Option<Card> {
     let GhEvent::Ci {
