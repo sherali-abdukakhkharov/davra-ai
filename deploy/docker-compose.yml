@@ -62,8 +62,15 @@ services:
   embed:
     profiles: ["embeddings"]
     image: ollama/ollama:0.12.6
+    environment:
+      # Search embeds each query within 3 s; a cold model load takes longer, so keep it loaded.
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-24h}
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
     volumes:
       - ollama:/root/.ollama
+    # bge-m3 needs about 1.5 GB loaded; the cap keeps it from starving the hub and Postgres.
+    mem_limit: ${EMBED_MEM_LIMIT:-2560m}
     restart: unless-stopped
 
   # Remote-managed tunnel: set CF_TUNNEL_TOKEN, run with --profile tunnel.
