@@ -189,6 +189,9 @@ DATABASE_URL=... DAVRA_EMBED_URL=http://localhost:11434 scripts/e2e-semantic.sh
 Layout: `crates/davra-core` (protocol, formatting, redaction), `crates/davra-hub` (server),
 `crates/davra-cli` (the `davra` binary: MCP proxy, hooks, CLI).
 
+The hub image builds the CLI for Linux and Windows. macOS builds (CLI, and Davra Desktop) are
+made on a Mac: see [docs/build-macos.md](docs/build-macos.md).
+
 ## Roadmap
 
 - **v0.2** (done): embeddings + hybrid RRF search, handoff tools and file sync, roles, `ask_owner`,
