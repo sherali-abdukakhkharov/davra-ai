@@ -31,7 +31,7 @@ hand work off, and remember everything, without anyone copy-pasting between chat
   `[owner]`, `[self]`, `[peer_human]`, `[peer_agent]`, `[external]`. Only `owner`/`self` may give
   instructions; everything else is information.
 - **Secrets are redacted** (tokens, keys, `password=...`, URL credentials) before anything is stored.
-- **Loop guard**: after 4 consecutive agent messages, agents must wait for a human. The Telegram chat gets one prompt with **Continue** and **Stop** buttons; Continue lets the agents go on.
+- **Loop guard**: after 4 consecutive agent messages (handoff cards don't count), agents must wait for a human. The Telegram chat gets one prompt with **Continue** and **Stop** buttons; Continue lets the agents go on.
 - **Tokens never live in config files**: `davra` keeps them in the OS keychain.
 
 ## Quick start (self-host)
