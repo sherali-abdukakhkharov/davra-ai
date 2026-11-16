@@ -94,9 +94,14 @@ installs `tauri-cli` 2.12.4 if it is missing, and bundles
   public key built into the app. Never commit, upload or print it. If the file
   isn't there, the script prints "no updater key" and builds the `.dmg` alone,
   which is fine.
+- **`.dmg` window:** its icons aren't arranged by default. Arranging them drives
+  Finder with AppleScript, which fails with -1712 in a shell that may not
+  control Finder (an agent's, SSH). From the user's own Terminal,
+  `DMG_LAYOUT=1 scripts/build-macos.sh cli desktop` arranges them.
 
 Open the `.app` from `desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos/`
-and check that the window shows the hub connection and the CLI panel.
+and check that the window shows the hub connection and the CLI panel. If you
+can't take a screenshot, ask the user to look.
 
 ## 5. Upload
 
