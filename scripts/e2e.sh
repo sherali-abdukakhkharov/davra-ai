@@ -418,6 +418,21 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -b "$WJ" "${J[@]}" -d '{"text":"no
 [ "$code" = 403 ] || fail "web POST without X-Davra -> $code"
 ok "web app: create project, post, agents with roles, one-time token works then revokes, others' projects hidden, CSRF enforced"
 
+body=$(W "$DAVRA_HUB/api/v1/web/projects/design-lab/crm/telegram")
+has "$body" '"bot":null' "no bot on this hub"
+has "$body" '"linked":false' "group not linked"
+has "$body" '"can_link":true' "owner may link"
+has "$body" '"can_manage":false' "nothing to manage yet"
+body=$(W "$DAVRA_HUB/api/v1/web/projects/design-lab/crm")
+has "$body" '"telegram_chat":null' "header has no group title"
+body=$(WP /api/v1/web/projects/design-lab/crm/telegram/link '')
+has "$body" "no Telegram bot configured" "link needs a bot"
+body=$(WP /api/v1/web/projects/design-lab/crm/telegram/topic '{"id":null}')
+has "$body" "no Telegram group is linked" "topic needs a linked group"
+code=$(W -o /dev/null -w '%{http_code}' "$DAVRA_HUB/api/v1/web/projects/shaxsiy/atlas/telegram")
+[ "$code" = 404 ] || fail "other people's telegram status must be invisible -> $code"
+ok "telegram group: status, link and topic refuse without a bot or a group, others' hidden"
+
 echo "== team invites"
 # New accounts come from another address so the register rate limit is not the subject here.
 IP2=(-H 'cf-connecting-ip: 10.0.0.2')

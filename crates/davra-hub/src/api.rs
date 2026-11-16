@@ -111,6 +111,22 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/web/projects/{org}/{slug}/usage",
             get(crate::usage::report),
         )
+        .route(
+            "/api/v1/web/projects/{org}/{slug}/telegram",
+            get(crate::tggroup::status),
+        )
+        .route(
+            "/api/v1/web/projects/{org}/{slug}/telegram/link",
+            post(crate::tggroup::link),
+        )
+        .route(
+            "/api/v1/web/projects/{org}/{slug}/telegram/unlink",
+            post(crate::tggroup::unlink),
+        )
+        .route(
+            "/api/v1/web/projects/{org}/{slug}/telegram/topic",
+            post(crate::tggroup::set_topic),
+        )
         .route("/api/v1/web/invites/{code}", get(crate::team::invite_info))
         .route(
             "/api/v1/web/invites/{code}/accept",

@@ -3,12 +3,15 @@
 
 import {
   grantable,
+  isAdmin,
   type Handoff,
   type Invite,
   type Member,
   type Message,
   type ProjectDetail,
   type ProjectItem,
+  type TelegramStatus,
+  type TgTopic,
   type Token,
   type Trust,
   type Usage,
@@ -23,6 +26,8 @@ type State = {
   linkReadyAt: number | null;
   projects: Project[];
   nextId: number;
+  /** ?mock=nobot: the hub runs without a Telegram bot. */
+  noBot: boolean;
 };
 
 type Project = {
@@ -33,6 +38,19 @@ type Project = {
   handoffs: Handoff[];
   /** Synthetic Claude Code telemetry, one row per agent per day. Absent means none was ever sent. */
   usage?: UsageRow[];
+  /** The linked Telegram group; absent means none. */
+  tg?: MockGroup;
+  /** A group-link code someone asked for; the mock "adds the bot" a few seconds later. */
+  tgPending?: { code: string; readyAt: number; until: number };
+};
+
+type MockGroup = {
+  chat_title: string;
+  forum: boolean;
+  topic: TgTopic | null;
+  topics: TgTopic[];
+  linked_by_me: boolean;
+  reads_all: boolean | null;
 };
 
 type UsageRow = { day: string; handle: string; owner: string | null; u: Usage; models: UsageModel[] };
@@ -163,6 +181,18 @@ function seedAtlas(): Project {
   return {
     item: { org: "shaxsiy", slug: "atlas", name: "Atlas", role: "owner", handle: "frontend", members: 3, agents: 2, messages: 1284, open_handoffs: 153, last_activity: ago(4), telegram: true },
     members, messages, handoffs,
+    tg: {
+      chat_title: "Atlas · dev",
+      forum: true,
+      topic: { id: 12, name: "Agents" },
+      topics: [
+        { id: 12, name: "Agents" },
+        { id: 31, name: "Releases" },
+        { id: 47, name: null },
+      ],
+      linked_by_me: false,
+      reads_all: true,
+    },
     usage: seedUsage([
       ["frontend-ai", "frontend", 1.0],
       ["backend-ai", "backend", 0.7],
@@ -182,6 +212,19 @@ function seedSecond(): Project {
   };
 }
 
+/** A project you maintain that has no Telegram group yet, to click through linking one. */
+function seedUnlinked(): Project {
+  return {
+    item: { org: "qitmir", slug: "bozor", name: "Bozor", role: "maintainer", handle: "frontend", members: 2, agents: 0, messages: 41, open_handoffs: 0, last_activity: ago(60 * 5), telegram: false },
+    members: [
+      { handle: "frontend", kind: "human", linked: true, display_name: "Frontend", owner: null, roles: ["ui"], role: "maintainer", last_seen: ago(2), is_me: true, mine: false, tokens: [] },
+      { handle: "design", kind: "human", linked: true, display_name: "Design", owner: null, roles: ["design"], role: "owner", last_seen: ago(60 * 7), is_me: false, mine: false, tokens: [] },
+    ],
+    messages: [],
+    handoffs: [],
+  };
+}
+
 const state: State = {
   signedIn: true,
   user: { id: "u-1", name: "Frontend", email: "frontend@example.com" },
@@ -189,7 +232,23 @@ const state: State = {
   linkReadyAt: null,
   projects: [],
   nextId: 5000,
+  noBot: false,
 };
+
+function tgStatus(p: Project): TelegramStatus {
+  const g = p.tg;
+  return {
+    bot: state.noBot ? null : "davra_bot",
+    linked: Boolean(g),
+    chat_title: g?.chat_title ?? null,
+    forum: g?.forum ?? false,
+    topic: g?.topic ?? null,
+    topics: g?.topics ?? [],
+    can_link: isAdmin(p.item.role),
+    can_manage: Boolean(g) && (p.item.role === "owner" || Boolean(g?.linked_by_me)),
+    reads_all: g ? g.reads_all : null,
+  };
+}
 
 const json = (status: number, body: unknown) =>
   new Response(body === undefined ? null : JSON.stringify(body), {
@@ -208,7 +267,10 @@ function find(org: string, slug: string) {
 function detail(p: Project): ProjectDetail {
   const week = Date.now() - 7 * 24 * 60 * MINUTE;
   return {
-    project: { org: p.item.org, slug: p.item.slug, name: p.item.name, role: p.item.role, handle: p.item.handle, telegram: p.item.telegram },
+    project: {
+      org: p.item.org, slug: p.item.slug, name: p.item.name, role: p.item.role, handle: p.item.handle,
+      telegram: p.item.telegram, telegram_chat: p.tg?.chat_title ?? null,
+    },
     stats: {
       messages: p.item.messages,
       messages_7d: p.messages.filter((m) => Date.parse(m.created_at) > week).length + 140,
@@ -457,6 +519,54 @@ async function handle(method: string, path: string, body: Record<string, unknown
       pr.item.agents++;
       return json(201, { agent });
     }
+    if (rest === "/telegram" && method === "GET") {
+      const pend = pr.tgPending;
+      if (pend && !pr.tg && Date.now() > pend.readyAt && Date.now() < pend.until) {
+        // The person picked a group in Telegram; the bot is in, but not an admin yet.
+        pr.tg = { chat_title: `${pr.item.name} team`, forum: true, topic: null, topics: [{ id: 3, name: "Agents" }], linked_by_me: true, reads_all: false };
+        pr.item.telegram = true;
+        pr.tgPending = undefined;
+      }
+      return json(200, tgStatus(pr));
+    }
+    if (rest === "/telegram/link" && method === "POST") {
+      if (state.noBot) return fail(400, "bad_request", "this hub has no Telegram bot");
+      if (!isAdmin(pr.item.role)) return fail(403, "forbidden", "only owners and maintainers link the Telegram group");
+      const code = `g_${Math.random().toString(36).slice(2, 12)}`;
+      // Pretend the person picks the group in Telegram about eight seconds later.
+      pr.tgPending = { code, readyAt: Date.now() + 8000, until: Date.now() + 600_000 };
+      return json(200, { deep_link: `https://t.me/davra_bot?startgroup=${code}`, bot: "davra_bot", command: `/start@davra_bot ${code}`, expires_in: 600 });
+    }
+    if ((rest === "/telegram/unlink" || rest === "/telegram/topic") && method === "POST") {
+      const g = pr.tg;
+      if (!g) return fail(400, "bad_request", "this project has no Telegram group");
+      if (!tgStatus(pr).can_manage) return fail(403, "forbidden", "only whoever linked the group, or an owner, can change it");
+      if (rest === "/telegram/unlink") {
+        pr.tg = undefined;
+        pr.item.telegram = false;
+        return json(200, { ok: true });
+      }
+      if (typeof body.create === "string") {
+        const name = body.create.trim();
+        if (!name) return fail(400, "bad_request", "give the topic a name", "create");
+        if (name.length > 128) return fail(400, "bad_request", "topic names are up to 128 characters", "create");
+        if (!g.forum || g.reads_all !== true) {
+          return fail(400, "bad_request", "The bot can’t create topics in this group. Make it an admin with the Manage topics right, then try again.");
+        }
+        const topic = { id: Math.max(1, ...g.topics.map((x) => x.id)) + 1, name };
+        g.topics = [...g.topics, topic];
+        g.topic = topic;
+        return json(200, tgStatus(pr));
+      }
+      const id = body.id;
+      if (id === null) g.topic = null;
+      else {
+        const topic = g.topics.find((x) => x.id === id);
+        if (!topic) return fail(400, "bad_request", "the bot hasn’t seen that topic", "id");
+        g.topic = topic;
+      }
+      return json(200, tgStatus(pr));
+    }
     const admin = grantable(pr.item.role).length > 0;
     if (rest === "/invites" && method === "GET") {
       if (!admin) return fail(403, "forbidden", "only owners and maintainers manage the team");
@@ -531,9 +641,10 @@ async function handle(method: string, path: string, body: Record<string, unknown
   return fail(404, "not_found", `Mock has no route for ${method} ${p}`);
 }
 
-export function installMock({ fresh = false }: { fresh?: boolean } = {}) {
+export function installMock({ fresh = false, noBot = false }: { fresh?: boolean; noBot?: boolean } = {}) {
   state.linked = !fresh;
-  state.projects = fresh ? [] : [seedAtlas(), seedSecond()];
+  state.noBot = noBot;
+  state.projects = fresh ? [] : [seedAtlas(), seedSecond(), seedUnlinked()];
   const real = window.fetch.bind(window);
   (window as unknown as { __DAVRA_MOCK__: boolean }).__DAVRA_MOCK__ = true;
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {

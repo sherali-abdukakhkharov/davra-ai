@@ -26,6 +26,10 @@ pub struct Telegram {
     pub username: String,
     /// Language of card labels (`DAVRA_LANG`).
     pub lang: crate::tgcard::Lang,
+    /// Privacy mode is off: the bot sees every group message without being an admin.
+    pub reads_all_groups: bool,
+    /// Linked group → the forum topic the bot posts to.
+    threads: std::sync::RwLock<std::collections::HashMap<i64, i64>>,
 }
 
 #[derive(Deserialize)]
@@ -41,6 +45,7 @@ pub struct Update {
     pub message: Option<TgMessage>,
     pub edited_message: Option<TgMessage>,
     pub callback_query: Option<CallbackQuery>,
+    pub my_chat_member: Option<ChatMemberUpdated>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -64,6 +69,9 @@ pub struct TgMessage {
     #[serde(default)]
     pub is_topic_message: bool,
     pub forum_topic_created: Option<ForumTopic>,
+    pub forum_topic_edited: Option<ForumTopicEdited>,
+    /// The group became a supergroup with this new id.
+    pub migrate_to_chat_id: Option<i64>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -79,11 +87,39 @@ pub struct TgUser {
 #[derive(Deserialize, Debug, Clone)]
 pub struct TgChat {
     pub id: i64,
+    #[serde(rename = "type")]
+    pub kind: Option<String>,
+    pub title: Option<String>,
+    #[serde(default)]
+    pub is_forum: bool,
+}
+
+impl TgChat {
+    pub fn is_group(&self) -> bool {
+        matches!(self.kind.as_deref(), Some("group" | "supergroup"))
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct ForumTopic {
     pub name: String,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct ForumTopicEdited {
+    pub name: Option<String>,
+}
+
+/// The bot's own membership changed (added to or removed from a group).
+#[derive(Deserialize, Debug, Clone)]
+pub struct ChatMemberUpdated {
+    pub chat: TgChat,
+    pub new_chat_member: ChatMemberStatus,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct ChatMemberStatus {
+    pub status: String,
 }
 
 #[derive(Deserialize)]
@@ -95,6 +131,8 @@ struct SentMessage {
 struct BotUser {
     id: i64,
     username: Option<String>,
+    #[serde(default)]
+    can_read_all_group_messages: bool,
 }
 
 /// A text message from a group, flattened for storage.
@@ -295,6 +333,8 @@ impl Telegram {
             bot_id: 0,
             username: String::new(),
             lang: crate::tgcard::Lang::from_env(),
+            reads_all_groups: false,
+            threads: Default::default(),
         };
         let me: BotUser = t
             .call("getMe", json!({}))
@@ -302,7 +342,90 @@ impl Telegram {
             .context("telegram getMe failed")?;
         t.bot_id = me.id;
         t.username = me.username.unwrap_or_default();
+        t.reads_all_groups = me.can_read_all_group_messages;
         Ok(t)
+    }
+
+    /// Remembers every linked group's topic (call once at start).
+    pub async fn load_threads(&self, pool: &PgPool) -> Result<()> {
+        let rows: Vec<(i64, i64)> = sqlx::query_as(
+            "select tg_chat_id, tg_thread_id from projects where tg_chat_id is not null and tg_thread_id is not null",
+        )
+        .fetch_all(pool)
+        .await?;
+        let mut t = self.threads.write().expect("threads lock");
+        t.clear();
+        t.extend(rows);
+        Ok(())
+    }
+
+    /// The topic the bot posts to in `chat` (None = the whole group).
+    pub fn set_thread(&self, chat: i64, thread: Option<i64>) {
+        let mut t = self.threads.write().expect("threads lock");
+        match thread {
+            Some(th) => t.insert(chat, th),
+            None => t.remove(&chat),
+        };
+    }
+
+    fn default_thread(&self, chat: i64) -> Option<i64> {
+        self.threads
+            .read()
+            .expect("threads lock")
+            .get(&chat)
+            .copied()
+    }
+
+    /// Sends a message. Unless it names a topic or replies to a message, it
+    /// goes to the group's chosen topic; if that topic is gone, to General.
+    async fn post_msg(&self, method: &str, mut body: serde_json::Value) -> Result<SentMessage> {
+        let chat = body["chat_id"].as_i64();
+        let free =
+            body.get("message_thread_id").is_none() && body.get("reply_parameters").is_none();
+        let Some(th) = chat.filter(|_| free).and_then(|c| self.default_thread(c)) else {
+            return self.call(method, body).await;
+        };
+        body["message_thread_id"] = json!(th);
+        match self.call(method, body.clone()).await {
+            Err(e) if e.to_string().contains("thread not found") => {
+                tracing::warn!(chat = ?chat, thread = th, "chosen topic is gone; posting to General");
+                if let Some(o) = body.as_object_mut() {
+                    o.remove("message_thread_id");
+                }
+                self.call(method, body).await
+            }
+            r => r,
+        }
+    }
+
+    /// Whether the bot sees every message in `chat` (an admin, or privacy mode off).
+    pub async fn reads_all(&self, chat: i64) -> Result<bool> {
+        if self.reads_all_groups {
+            return Ok(true);
+        }
+        #[derive(Deserialize)]
+        struct Member {
+            status: String,
+        }
+        let m: Member = self
+            .call(
+                "getChatMember",
+                json!({ "chat_id": chat, "user_id": self.bot_id }),
+            )
+            .await?;
+        Ok(matches!(m.status.as_str(), "administrator" | "creator"))
+    }
+
+    /// Creates a forum topic; returns its thread id.
+    pub async fn create_topic(&self, chat: i64, name: &str) -> Result<i64> {
+        #[derive(Deserialize)]
+        struct Topic {
+            message_thread_id: i64,
+        }
+        let t: Topic = self
+            .call("createForumTopic", json!({ "chat_id": chat, "name": name }))
+            .await?;
+        Ok(t.message_thread_id)
     }
 
     async fn call<T: DeserializeOwned>(&self, method: &str, body: serde_json::Value) -> Result<T> {
@@ -362,7 +485,7 @@ impl Telegram {
         if let Some(t) = thread {
             body["message_thread_id"] = json!(t);
         }
-        let sent: SentMessage = self.call("sendMessage", body).await?;
+        let sent = self.post_msg("sendMessage", body).await?;
         Ok(sent.message_id)
     }
 
@@ -387,7 +510,7 @@ impl Telegram {
                 .collect();
             body["reply_markup"] = json!({ "inline_keyboard": rows });
         }
-        let sent: SentMessage = self.call("sendMessage", body).await?;
+        let sent = self.post_msg("sendMessage", body).await?;
         Ok(sent.message_id)
     }
 
@@ -439,7 +562,7 @@ impl Telegram {
         if rich {
             let mut body = common.clone();
             body["rich_message"] = json!({ "html": card.html, "skip_entity_detection": true });
-            match self.call::<SentMessage>("sendRichMessage", body).await {
+            match self.post_msg("sendRichMessage", body).await {
                 Ok(sent) => return Ok(sent.message_id),
                 Err(e) if card.plain.is_empty() => return Err(e),
                 Err(e) => tracing::warn!(error = %e, "rich message refused; sending plain text"),
@@ -453,7 +576,7 @@ impl Telegram {
         if !fits.is_empty() {
             body["entities"] = json!(fits);
         }
-        let sent: SentMessage = self.call("sendMessage", body).await?;
+        let sent = self.post_msg("sendMessage", body).await?;
         Ok(sent.message_id)
     }
 
@@ -489,7 +612,7 @@ impl Telegram {
             let updates: Result<Vec<Update>> = self
                 .call(
                     "getUpdates",
-                    json!({ "offset": offset, "timeout": 50, "allowed_updates": ["message", "edited_message", "callback_query"] }),
+                    json!({ "offset": offset, "timeout": 50, "allowed_updates": ["message", "edited_message", "callback_query", "my_chat_member"] }),
                 )
                 .await;
             match updates {
@@ -514,6 +637,13 @@ impl Telegram {
     }
 
     async fn handle(&self, pool: &PgPool, u: &Update) -> Result<()> {
+        if let Some(m) = &u.my_chat_member {
+            return crate::tggroup::on_membership(pool, self, m).await;
+        }
+        if let Some(m) = &u.message {
+            // Supergroup migration, topics created or renamed: before text parsing skips them.
+            crate::tggroup::observe(pool, self, m).await?;
+        }
         if let Some(cb) = &u.callback_query {
             if cb.data.as_deref().is_some_and(|d| d.starts_with("lg:")) {
                 return crate::loopguard::on_button(pool, self, cb).await;
@@ -543,6 +673,16 @@ impl Telegram {
                 };
                 self.send(inc.chat_id, &reply, None, None).await?;
                 return Ok(());
+            }
+            if let Some(m) = &u.message {
+                // "/start g_<code>" from t.me/<bot>?startgroup=…: link this group to a project.
+                if let Some(code) = crate::tggroup::group_code(&inc.text, &self.username) {
+                    return crate::tggroup::on_code(pool, self, m, code).await;
+                }
+                // "/here" in a forum topic: post there from now on.
+                if is_command(&inc.text, "/here") {
+                    return crate::tggroup::on_here(pool, self, m).await;
+                }
             }
         }
         let project = db::project_by_tg_chat(pool, inc.chat_id).await?;

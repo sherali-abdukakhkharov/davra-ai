@@ -179,6 +179,22 @@ pub async fn complete_link(
     let Some((user_id,)) = user else {
         return Ok("This link has expired. Open Davra and press “Connect Telegram” again.".into());
     };
+    Ok(
+        match attach_telegram(pool, user_id, tg_user_id, tg_username).await? {
+            Ok(reply) | Err(reply) => reply,
+        },
+    )
+}
+
+/// Gives a web account its Telegram identity: the account's members learn
+/// the Telegram id (and take the username as their handle). `Err` carries
+/// the reason it can't (the Telegram account belongs to another user).
+pub async fn attach_telegram(
+    pool: &PgPool,
+    user_id: Uuid,
+    tg_user_id: i64,
+    tg_username: Option<&str>,
+) -> anyhow::Result<Result<String, String>> {
     let taken: Option<Uuid> =
         sqlx::query_scalar("select id from users where tg_user_id = $1 and id <> $2")
             .bind(tg_user_id)
@@ -186,7 +202,9 @@ pub async fn complete_link(
             .fetch_optional(pool)
             .await?;
     if taken.is_some() {
-        return Ok("This Telegram account is already linked to another Davra account.".into());
+        return Ok(Err(
+            "This Telegram account is already linked to another Davra account.".into(),
+        ));
     }
     sqlx::query("update users set tg_user_id = $2 where id = $1")
         .bind(user_id)
@@ -256,14 +274,14 @@ pub async fn complete_link(
         serde_json::json!({}),
     )
     .await?;
-    Ok(if projects.is_empty() {
+    Ok(Ok(if projects.is_empty() {
         "Linked ✓ No Davra project uses this Telegram account yet.".into()
     } else {
         format!(
             "Linked ✓ Your projects: {}{rename_note}",
             projects.join(", ")
         )
-    })
+    }))
 }
 
 #[derive(Serialize)]
@@ -364,6 +382,8 @@ pub struct ProjectHead {
     role: String,
     handle: String,
     telegram: bool,
+    /// The linked Telegram group's title, when the bot saw it.
+    telegram_chat: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -410,6 +430,11 @@ pub async fn project_detail(
     let handoffs = crate::handoffs::open_in_project(&mut *pool, p.id, 20).await?;
     let total = db::total_messages(&mut *pool, p.id).await?;
     let members = members(pool, &p, caller.member_id).await?;
+    let telegram_chat: Option<String> =
+        sqlx::query_scalar("select tg_chat_title from projects where id = $1")
+            .bind(p.id)
+            .fetch_one(&mut *pool)
+            .await?;
     tx.commit().await?;
     Ok(Json(ProjectDetail {
         project: ProjectHead {
@@ -419,6 +444,7 @@ pub async fn project_detail(
             role: p.role.clone(),
             handle: caller.handle.clone(),
             telegram: p.tg_chat_id.is_some(),
+            telegram_chat,
         },
         stats: Stats {
             messages: total,

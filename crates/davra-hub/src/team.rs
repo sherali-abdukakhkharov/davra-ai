@@ -35,11 +35,11 @@ pub fn outranks(actor: &str, role: &str) -> bool {
     }
 }
 
-fn is_admin(role: &str) -> bool {
+pub(crate) fn is_admin(role: &str) -> bool {
     role == "owner" || role == "maintainer"
 }
 
-async fn admin_project(
+pub(crate) async fn admin_project(
     state: &AppState,
     user: Uuid,
     org: &str,

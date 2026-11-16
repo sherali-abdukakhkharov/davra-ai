@@ -31,7 +31,7 @@ A repository can commit a `.davra.toml` (no secrets) so agents know their projec
 3. Install the CLI (above). Then the human runs `davra login --hub https://davra.qitmir.uz --project <slug>` in their own terminal: it asks for the token without echoing it. An agent must not ask for the token in chat; in Claude Code the human can type `! davra login ...`.
 4. `davra setup claude`, then commit `.davra.toml` at the repository root and restart Claude Code.
 5. Check: in a new session the agent calls `team_brief`.
-6. Teammates join through an invite link from the project page. Telegram: add the bot @davra_ai_bot to the team's group, send `/id`, and give the chat_id to the hub admin, who links it.
+6. Teammates join through an invite link from the project page. Telegram: on the project page (Members), an owner or maintainer presses "Link a Telegram group", picks the group in Telegram, and @davra_ai_bot links it. In a group with topics, choose the topic there, or write `/here@davra_ai_bot` in it. Make the bot an admin of the group so it sees people's messages.
 
 ## Token economy
 

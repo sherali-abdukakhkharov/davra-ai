@@ -8,14 +8,15 @@ import "./index.css";
 const el = document.getElementById("root");
 if (!el) throw new Error("#root missing");
 
-// Dev only: ?mock=1 (or ?mock=fresh) serves the API from src/lib/mock.ts. Stripped from production builds.
+// Dev only: ?mock=1 (or ?mock=fresh, ?mock=nobot) serves the API from src/lib/mock.ts. Stripped from production builds.
 if (import.meta.env.DEV) {
   const flag = new URLSearchParams(location.search).get("mock");
   if (flag) sessionStorage.setItem("davra-mock", flag);
   if (flag === "0") sessionStorage.removeItem("davra-mock");
   if (sessionStorage.getItem("davra-mock")) {
     const { installMock } = await import("@/lib/mock");
-    installMock({ fresh: sessionStorage.getItem("davra-mock") === "fresh" });
+    const mode = sessionStorage.getItem("davra-mock");
+    installMock({ fresh: mode === "fresh", noBot: mode === "nobot" });
   }
 }
 

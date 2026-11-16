@@ -22,7 +22,7 @@ export function Seat({ kind, className }: { kind: Member["kind"]; className?: st
   );
 }
 
-const selectClass =
+export const selectClass =
   "h-11 w-full min-w-0 cursor-pointer rounded-md border border-rule-strong bg-bg-raised px-3 text-[0.95rem] text-fg outline-none transition-[border-color,box-shadow] duration-150 hover:border-fg-muted/60 focus-visible:border-accent focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60";
 
 type Props = {
@@ -78,7 +78,7 @@ export function MembersTab({ project, members, onMembers, onChanged }: Props) {
 }
 
 /** Inline "are you sure" strip, the same shape as revoking a token. */
-function Confirm({
+export function Confirm({
   text,
   yes,
   busy,
