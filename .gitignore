@@ -14,3 +14,5 @@ desktop/src-tauri/target/
 desktop/src-tauri/gen/schemas/
 desktop/dist/
 web/dist-desktop/
+deploy/clients/davra-*
+dist-macos/

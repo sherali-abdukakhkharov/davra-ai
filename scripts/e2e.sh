@@ -273,18 +273,25 @@ has "$ch_out" '"claude/channel"' "channel capability declared"
 has "$ch_out" '"method":"notifications/claude/channel"' "message pushed into the session"
 has "$ch_out" 'channel test' "pushed content"
 has "$(as "$T_GAI" inbox --project atlas)" "No unread" "pushed messages count as read"
-# Stop hook: waiting messages keep a finished agent going, once in a row.
-say "@backend-ai stop hook test"
+# Stop hook: the owner's waiting messages keep a finished agent going, once in a row;
+# a teammate's wait, unread, for the next prompt.
+ack_all "$T_LAI"
+say "@backend-ai peer message"
 out=$(printf '{"cwd":"%s","stop_hook_active":false}' "$REPO" | DAVRA_TOKEN="$T_GAI" "$CLI" inbox --hook --stop)
-has "$out" '"decision":"block"' "stop hook blocks with new messages"
+[ -z "$out" ] || fail "stop hook must not block on a teammate's message, got: $out"
+has "$(as "$T_GAI" inbox --project atlas)" "peer message" "a teammate's message stays unread for the next prompt"
+say "@frontend-ai stop hook test"
+out=$(printf '{"cwd":"%s","stop_hook_active":false}' "$REPO" | DAVRA_TOKEN="$T_LAI" "$CLI" inbox --hook --stop)
+has "$out" '"decision":"block"' "stop hook blocks on the owner's message"
 has "$out" 'stop hook test' "stop hook hands the messages over"
-out=$(printf '{"cwd":"%s","stop_hook_active":false}' "$REPO" | DAVRA_TOKEN="$T_GAI" "$CLI" inbox --hook --stop)
+out=$(printf '{"cwd":"%s","stop_hook_active":false}' "$REPO" | DAVRA_TOKEN="$T_LAI" "$CLI" inbox --hook --stop)
 [ -z "$out" ] || fail "stop hook with nothing new must stay silent, got: $out"
-say "@backend-ai one more"
-out=$(printf '{"cwd":"%s","stop_hook_active":true}' "$REPO" | DAVRA_TOKEN="$T_GAI" "$CLI" inbox --hook --stop)
+say "@frontend-ai one more"
+out=$(printf '{"cwd":"%s","stop_hook_active":true}' "$REPO" | DAVRA_TOKEN="$T_LAI" "$CLI" inbox --hook --stop)
 [ -z "$out" ] || fail "stop hook must let a continued agent rest, got: $out"
 ack_all "$T_GAI"
-ok "davra mcp as a channel: session protocol only, pushes new messages live; Stop hook delivers between turns without looping"
+ack_all "$T_LAI"
+ok "davra mcp as a channel: session protocol only, pushes new messages live; Stop hook delivers the owner's messages between turns without looping"
 
 echo "== ask_owner"
 out=$(mcp "$T_LAI" '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ask_owner","arguments":{"question":"ATL-032 ni main ga merge qilaymi?","options":["Ha, merge qil","Yo'\''q, kut"]}}}')

@@ -53,19 +53,26 @@ Write-Host "  davra setup claude"
 "#;
 
 const SH: &str = r#"#!/bin/sh
-# Davra client installer for Linux.
+# Davra client installer for Linux and macOS.
 set -eu
 HUB='{{HUB}}'
 os=$(uname -s); arch=$(uname -m)
+from_source() {
+  echo "Build it from source instead (needs Rust 1.85 or newer):" >&2
+  echo "  cargo install --locked --git https://github.com/sherali-abdukakhkharov/davra-ai davra-cli" >&2
+  echo "Then make sure ~/.cargo/bin is on PATH (Homebrew's rust does not add it)." >&2
+}
 case "$os-$arch" in
   Linux-x86_64) f=davra-linux-x86_64 ;;
-  *) echo "davra: no prebuilt binary for $os/$arch yet." >&2; exit 1 ;;
+  Darwin-arm64) f=davra-macos-aarch64 ;;
+  Darwin-x86_64) f=davra-macos-x86_64 ;;
+  *) echo "davra: no prebuilt binary for $os/$arch yet." >&2; from_source; exit 1 ;;
 esac
 dir="$HOME/.davra/bin"
 mkdir -p "$dir"
 echo "Downloading davra from $HUB ..."
 want=$(curl -fsSL "$HUB/downloads/SHA256SUMS" | awk -v f="$f" '$2 == f { print $1 }')
-[ -n "$want" ] || { echo "davra: no checksum for $f on $HUB" >&2; exit 1; }
+[ -n "$want" ] || { echo "davra: this hub has no $f yet." >&2; from_source; exit 1; }
 # The checksum in the URL gives every build its own cache key, so a CDN can never serve an older binary.
 curl -fsSL "$HUB/downloads/$f?sha=$want" -o "$dir/davra.download"
 got=$( (sha256sum "$dir/davra.download" 2>/dev/null || shasum -a 256 "$dir/davra.download") | awk '{ print $1 }')
@@ -248,6 +255,14 @@ mod tests {
         // Login shells, interactive bash, zsh and fish each read a different file.
         for rc in [".profile", ".bashrc", ".zshrc", "conf.d/davra.fish"] {
             assert!(SH.contains(rc), "install.sh misses {rc}");
+        }
+        // Both Macs, with a way forward when the hub has no build for one.
+        for f in [
+            "davra-macos-aarch64",
+            "davra-macos-x86_64",
+            "cargo install --locked --git",
+        ] {
+            assert!(SH.contains(f), "install.sh misses {f}");
         }
     }
 }

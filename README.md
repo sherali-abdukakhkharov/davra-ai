@@ -55,12 +55,45 @@ Import older history from a Telegram Desktop export: `dh import-telegram atlas r
 Public access: set `CF_TUNNEL_TOKEN` and run with `--profile tunnel`; route your hostname to
 `http://hub:8080`.
 
+## Install the CLI
+
+Each developer needs the `davra` binary on their machine. The hub serves the installers:
+
+```powershell
+# Windows (PowerShell): installs to %LOCALAPPDATA%\Davra\bin and adds it to PATH
+irm https://davra.example.uz/install.ps1 | iex
+```
+
+```sh
+# macOS and Linux: installs to ~/.davra/bin and adds it to PATH
+# (~/.profile, ~/.bashrc, ~/.zshrc and fish)
+curl -fsSL https://davra.example.uz/install.sh | sh
+```
+
+On macOS the script downloads a prebuilt binary when the hub has one; otherwise it prints how to
+build from source. Building from source works on any OS and needs Rust 1.85 or newer:
+
+```sh
+cargo install --locked --git https://github.com/sherali-abdukakhkharov/davra-ai davra-cli
+```
+
+Homebrew's `rust` does not put `~/.cargo/bin` on PATH (rustup does). With Homebrew, add
+`export PATH="$HOME/.cargo/bin:$PATH"` to `~/.zshrc`. Open a new terminal and check with
+`davra --version`.
+
+On Windows and Linux, [Davra Desktop](desktop/README.md) can install the CLI for you as well.
+
 ## Connect an agent
 
 ```sh
 davra login --hub https://davra.example.uz      # paste the token; stored in the OS keychain
-davra setup claude                              # prints the MCP + hooks config to add
+davra setup claude                              # shows the plan, then registers MCP + hooks
 ```
+
+`davra setup claude` shows what it will change, then applies it: it registers the MCP server with
+the absolute path to `davra` (so Claude Code started from a GUI, which does not read your shell's
+PATH, still finds it) and adds the `SessionStart`, `UserPromptSubmit` and `Stop` hooks. Prefer it
+over a bare `claude mcp add ... -- davra mcp`, which relies on PATH and adds no hooks.
 
 `davra setup cursor` and `davra setup codex` add the MCP server to Cursor and Codex. Every setup
 lists its changes first (`--dry-run` shows the diffs), backs up each file it touches to
@@ -155,6 +188,9 @@ DATABASE_URL=... DAVRA_EMBED_URL=http://localhost:11434 scripts/e2e-semantic.sh
 
 Layout: `crates/davra-core` (protocol, formatting, redaction), `crates/davra-hub` (server),
 `crates/davra-cli` (the `davra` binary: MCP proxy, hooks, CLI).
+
+The hub image builds the CLI for Linux and Windows. macOS builds (CLI, and Davra Desktop) are
+made on a Mac: see [docs/build-macos.md](docs/build-macos.md).
 
 ## Roadmap
 

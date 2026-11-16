@@ -717,7 +717,7 @@ pub async fn create_token(
     let hub = crate::downloads::hub_url(&state, &headers);
     let commands = vec![
         format!("# 1. Install davra. Windows (PowerShell): irm {hub}/install.ps1 | iex"),
-        format!("#    Linux: curl -fsSL {hub}/install.sh | sh"),
+        format!("#    macOS, Linux: curl -fsSL {hub}/install.sh | sh"),
         "# 2. Log in (paste the token above when asked):".to_string(),
         format!("davra login --hub {hub} --project {}", p.slug),
         "# 3. Connect Claude Code (MCP + hooks, with backups):".to_string(),
