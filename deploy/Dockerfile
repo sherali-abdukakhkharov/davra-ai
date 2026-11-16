@@ -42,6 +42,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 COPY --from=build /davra-hub /usr/local/bin/davra-hub
 COPY --from=web /web/dist /usr/share/davra/web
 COPY --from=clients /dl /usr/share/davra/downloads
+# Clients that can't be built here (macOS, from scripts/fetch-macos-clients.sh).
+COPY deploy/clients/ /usr/share/davra/downloads/
+RUN cd /usr/share/davra/downloads && rm -f .gitkeep && sha256sum davra-* > SHA256SUMS
 ENV DAVRA_WEB_DIR=/usr/share/davra/web \
     DAVRA_DOWNLOADS_DIR=/usr/share/davra/downloads
 USER davra

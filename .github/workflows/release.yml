@@ -1,0 +1,49 @@
+name: release
+
+# The davra CLI for macOS can't be cross-built in the hub's Docker image, so a
+# macOS runner builds it for a tag and attaches it to the GitHub Release.
+# scripts/fetch-macos-clients.sh then puts it where the hub image picks it up.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build (e.g. v0.2.4)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: |
+          set -eu
+          mkdir dist
+          for t in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --locked -p davra-cli --target "$t"
+          done
+          cp target/aarch64-apple-darwin/release/davra dist/davra-macos-aarch64
+          cp target/x86_64-apple-darwin/release/davra dist/davra-macos-x86_64
+          # Apple Silicon refuses unsigned code; the linker's ad-hoc signature
+          # must survive the copy.
+          codesign --verify dist/davra-macos-aarch64
+          ./dist/davra-macos-aarch64 --version
+          cd dist && shasum -a 256 davra-macos-* > SHA256SUMS-macos && cat SHA256SUMS-macos
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes "Davra $TAG"
+          gh release upload "$TAG" dist/davra-macos-aarch64 dist/davra-macos-x86_64 dist/SHA256SUMS-macos --clobber
