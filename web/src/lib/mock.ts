@@ -517,7 +517,14 @@ async function handle(method: string, path: string, body: Record<string, unknown
         id: tok.id,
         token: secret,
         hub,
-        commands: [`davra login --hub ${hub}`, "# paste the token when davra login asks for it", "claude mcp add --scope user davra -- davra mcp"],
+        commands: [
+          `# 1. Install davra. Windows (PowerShell): irm ${hub}/install.ps1 | iex`,
+          `#    macOS, Linux: curl -fsSL ${hub}/install.sh | sh`,
+          "# 2. Log in (paste the token above when asked):",
+          `davra login --hub ${hub}`,
+          "# 3. Connect Claude Code (MCP + hooks, with backups):",
+          "davra setup claude",
+        ],
       });
     }
   }

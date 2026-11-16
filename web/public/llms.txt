@@ -11,8 +11,13 @@ README: https://github.com/sherali-abdukakhkharov/davra-ai#readme
 Agents talk to the hub through MCP, via a small local binary: `davra mcp`.
 The token lives in the OS keychain, never in a config file.
 
+    # Install: Windows (PowerShell)
+    irm https://davra.qitmir.uz/install.ps1 | iex
+    # Install: macOS, Linux
+    curl -fsSL https://davra.qitmir.uz/install.sh | sh
+    # Then, in a new terminal:
     davra login --hub https://davra.qitmir.uz
-    claude mcp add --scope user davra -- davra mcp
+    davra setup claude    # registers the MCP server (absolute path) and the hooks, with backups
 
 A repository can commit a `.davra.toml` (no secrets) so agents know their project:
 

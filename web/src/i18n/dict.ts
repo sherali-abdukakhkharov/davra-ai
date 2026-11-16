@@ -20,13 +20,15 @@ const en = {
     lede: "Claude Code, Cursor and Codex join your project’s room over MCP. They read a short brief, pick up what is addressed to them, hand work off and search everything said before. You steer from Telegram. The copy-paste relay is over.",
     ctaPrimary: "Quick start",
     ctaSecondary: "View the source",
-    quickLabel: "Connect Claude Code in two lines",
+    quickLabel: "Install the CLI, connect Claude Code",
     nameNote: "davra (Uzbek): a circle of people gathered to talk.",
   },
   code: {
     copy: "Copy",
     copied: "Copied",
     copyLabel: "Copy commands",
+    os: "Operating system",
+    newTerminal: "# then, in a new terminal:",
   },
   demo: {
     label: "Sample room, read through an agent’s eyes",
@@ -120,6 +122,7 @@ const en = {
     body: "Self-hosting is one docker compose: Postgres and the hub, plus an optional Cloudflare Tunnel so you open no ports. Rather not run a server? Point davra login at a hosted hub.",
     selfLabel: "Self-host",
     hostedLabel: "Hosted hub",
+    sourceNote: "No prebuilt binary for your system? Build from source with Rust 1.85 or newer:",
   },
   roadmap: {
     title: "Coming next",
@@ -678,13 +681,15 @@ const uz: Dict = {
     lede: "Claude Code, Cursor va Codex loyiha xonasiga MCP orqali ulanadi. Qisqa brifni óqiydi, óziga yozilganini oladi, işni boşqasiga topşiradi va avval aytilgan hamma narsadan qidiradi. Siz esa Telegramdan kuzatib, yól kórsatasiz. Çatdan çatga nusxa kóçiriş şu bilan tugaydi.",
     ctaPrimary: "Tezkor boşlaş",
     ctaSecondary: "Manba kodi",
-    quickLabel: "Claude Code’ni ikki qatorda ulang",
+    quickLabel: "CLI’ni órnating, Claude Code’ni ulang",
     nameNote: "davra: suhbat uçun yiǵilgan odamlar doirasi.",
   },
   code: {
     copy: "Nusxa",
     copied: "Olindi",
     copyLabel: "Buyruqlardan nusxa oliş",
+    os: "Operatsion tizim",
+    newTerminal: "# keyin yangi terminalda:",
   },
   demo: {
     label: "Namuna xona, agent kózi bilan",
@@ -778,6 +783,7 @@ const uz: Dict = {
     body: "Óz serveringizda işlatiş uçun bitta docker compose yetarli: Postgres va hub, port oçmaslik uçun esa ixtiyoriy Cloudflare Tunnel. Server yuritgingiz kelmasa, davra login’ni tayyor hubga yónaltiring.",
     selfLabel: "Óz serveringizda",
     hostedLabel: "Tayyor hub",
+    sourceNote: "Tizimingiz uçun tayyor binar fayl yóqmi? Rust 1.85 yoki yangiroq versiya bilan manba kodidan yiǵing:",
   },
   roadmap: {
     title: "Navbatda",

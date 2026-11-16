@@ -1,5 +1,5 @@
 import { Check, Copy } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { usePrefs } from "@/lib/prefs";
 import { cn } from "@/lib/utils";
 
@@ -8,10 +8,12 @@ type Props = {
   label?: string;
   className?: string;
   tone?: "field" | "ground";
+  /** Shown in the caption next to the copy button, e.g. an OS switch. Needs a label. */
+  controls?: ReactNode;
 };
 
 /** Shell snippet with a copy button. Lines starting with # render as comments. */
-export function CodeBlock({ lines, label, className, tone = "ground" }: Props) {
+export function CodeBlock({ lines, label, className, tone = "ground", controls }: Props) {
   const { t } = usePrefs();
   const [copied, setCopied] = useState(false);
   const timer = useRef<number | undefined>(undefined);
@@ -62,7 +64,10 @@ export function CodeBlock({ lines, label, className, tone = "ground" }: Props) {
           )}
         >
           <span>{label}</span>
-          {button}
+          <span className="flex shrink-0 items-center gap-1">
+            {controls}
+            {button}
+          </span>
         </figcaption>
       ) : null}
       <pre translate="no" className={cn("overflow-x-auto [scrollbar-width:thin] px-4 py-3.5 text-[0.78rem] leading-[1.9]", !label && "pr-14")}>

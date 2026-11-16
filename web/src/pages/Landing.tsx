@@ -8,7 +8,7 @@ import {
   ShieldCheck,
   Undo2,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { Link } from "react-router";
 import { RoomDemo } from "@/components/landing/RoomDemo";
 import { TrustTag } from "@/components/landing/TrustTag";
@@ -21,7 +21,16 @@ import { Button } from "@/components/ui/button";
 import { usePrefs } from "@/lib/prefs";
 import { cn, DOCS_URL, HUB_URL, REPO_URL } from "@/lib/utils";
 
-const QUICK = [`davra login --hub ${HUB_URL}`, "claude mcp add --scope user davra -- davra mcp"];
+type Os = "windows" | "unix";
+const INSTALL: Record<Os, string> = {
+  windows: `irm ${HUB_URL}/install.ps1 | iex`,
+  unix: `curl -fsSL ${HUB_URL}/install.sh | sh`,
+};
+const OS_NAMES: Record<Os, string> = { windows: "Windows", unix: "macOS, Linux" };
+const CONNECT = [`davra login --hub ${HUB_URL}`, "davra setup claude"];
+const FROM_SOURCE = `cargo install --locked --git ${REPO_URL} davra-cli`;
+const guessOs = (): Os =>
+  typeof navigator !== "undefined" && /windows/i.test(navigator.userAgent) ? "windows" : "unix";
 const SELF_HOST = [
   "cp deploy/.env.example deploy/.env",
   "docker compose -f deploy/docker-compose.yml up -d --build",
@@ -131,7 +140,7 @@ function Hero() {
               </a>
             </Button>
           </div>
-          <CodeBlock tone="field" label={t.hero.quickLabel} lines={QUICK} className="rise mt-12 max-w-[36rem]" />
+          <QuickStart tone="field" label={t.hero.quickLabel} className="rise mt-12 max-w-[36rem]" />
           <p className="mt-8 text-sm text-field-muted">
             <span className="font-medium text-field-fg">davra</span>
             {t.hero.nameNote.replace(/^davra/, "")}
@@ -454,9 +463,47 @@ function SelfHost() {
           <p className="-mt-3 text-sm text-fg-muted">
             <code className="text-[0.75rem] text-fg">--profile tunnel</code> · Cloudflare Tunnel
           </p>
-          <CodeBlock label={t.selfhost.hostedLabel} lines={QUICK} />
+          <QuickStart label={t.selfhost.hostedLabel} />
+          <p className="-mt-3 text-sm text-fg-muted">
+            {t.selfhost.sourceNote}{" "}
+            <code translate="no" className="text-[0.75rem] [overflow-wrap:anywhere] text-fg">{FROM_SOURCE}</code>
+          </p>
         </div>
       </div>
     </section>
   );
+}
+
+/** Install line for the visitor's OS (switchable), then login and setup. */
+function QuickStart({ label, tone = "ground", className }: { label: string; tone?: "field" | "ground"; className?: string }) {
+  const { t } = usePrefs();
+  const [os, setOs] = useState<Os>(guessOs);
+  const field = tone === "field";
+  const controls = (
+    <span role="group" aria-label={t.code.os} className={cn("inline-flex h-7 rounded-md border p-0.5", field ? "border-field-rule" : "border-rule")}>
+      {(Object.keys(OS_NAMES) as Os[]).map((o) => (
+        <button
+          key={o}
+          type="button"
+          aria-pressed={os === o}
+          onClick={() => setOs(o)}
+          className={cn(
+            "h-full cursor-pointer rounded-[5px] px-2 text-[0.7rem] whitespace-nowrap transition-colors duration-150 touch-manipulation",
+            field
+              ? os === o
+                ? "bg-field-fg text-field"
+                : "text-field-muted hover:text-field-fg"
+              : os === o
+                ? "bg-fg text-bg"
+                : "text-fg-muted hover:text-fg",
+          )}
+        >
+          {OS_NAMES[o]}
+        </button>
+      ))}
+    </span>
+  );
+  // install.sh can't change this shell's PATH; install.ps1 runs in it and can.
+  const lines = os === "unix" ? [INSTALL.unix, t.code.newTerminal, ...CONNECT] : [INSTALL.windows, ...CONNECT];
+  return <CodeBlock tone={tone} label={label} lines={lines} controls={controls} className={className} />;
 }
