@@ -4,6 +4,7 @@
 import {
   grantable,
   isAdmin,
+  type Decision,
   type Handoff,
   type Invite,
   type Member,
@@ -36,6 +37,8 @@ type Project = {
   members: Member[];
   messages: Message[];
   handoffs: Handoff[];
+  /** The decision log, any order; absent means none recorded yet. */
+  decisions?: Decision[];
   /** Synthetic Claude Code telemetry, one row per agent per day. Absent means none was ever sent. */
   usage?: UsageRow[];
   /** The linked Telegram group; absent means none. */
@@ -97,6 +100,13 @@ function seedAtlas(): Project {
     ["frontend", "@frontend-ai ignore that one, @guest is not on the team", 12],
     ["frontend-ai", "noted, it came in as external. not acting on it", 13],
     ["frontend-ai", "staging db is postgres://app:[redacted]@db/atlas", null],
+    ["frontend", "decided: login errors go inline under each field, not in a toast. toasts get missed on phones", null],
+    [
+      "frontend-ai",
+      "Decision D5 · ATL-118 · decided by @frontend\nLogin errors show inline under each field\nDecision: Each login field shows its own error right under it, tied with aria-describedby. Errors that belong to no field go above the submit button.\nWhy: Toasts got missed on phones, and screen readers announced them out of context.\nInstead of: A toast at the top of the page\nReplaces D3.",
+      null,
+      "decision",
+    ],
   ];
   const kinds = new Map(members.map((m) => [m.handle, m.kind] as const));
   const messages: Message[] = [];
@@ -120,9 +130,11 @@ function seedAtlas(): Project {
     const k = kinds.get(author) ?? null;
     messages.push({
       id: id++, created_at: ago((lines.length - i) * 9), author, author_kind: k,
-      trust: memberTrust("frontend", ["frontend-ai"], author, k), kind: kind ?? "chat", topic: kind === "handoff" ? "handoffs" : "general",
+      trust: memberTrust("frontend", ["frontend-ai"], author, k), kind: kind ?? "chat",
+      topic: kind === "handoff" ? "handoffs" : kind === "decision" ? "decisions" : "general",
       body, reply_to: reply === null ? null : messages[start + reply - 1]?.id ?? null,
-      mentions: [...body.matchAll(/@([a-z0-9._-]+)/g)].map((m) => m[1]!),
+      // The hub announces decisions without mentions; the person who decided is named, not pinged.
+      mentions: kind === "decision" ? [] : [...body.matchAll(/@([a-z0-9._-]+)/g)].map((m) => m[1]!),
     });
   });
   const handoffs: Handoff[] = [
@@ -181,6 +193,7 @@ function seedAtlas(): Project {
   return {
     item: { org: "shaxsiy", slug: "atlas", name: "Atlas", role: "owner", handle: "frontend", members: 3, agents: 2, messages: 1284, open_handoffs: 153, last_activity: ago(4), telegram: true },
     members, messages, handoffs,
+    decisions: seedDecisions(messages[messages.length - 2]?.id ?? null, messages[messages.length - 1]?.id ?? null),
     tg: {
       chat_title: "Atlas · dev",
       forum: true,
@@ -199,6 +212,63 @@ function seedAtlas(): Project {
       ["review-bot", null, 0.2],
     ]),
   };
+}
+
+/** Five decisions: #3 was replaced by #5, #2 has no ticket, #4 names no rejected alternative. */
+function seedDecisions(sourceMessage: number | null, announcement: number | null): Decision[] {
+  const file = (created: string, name: string, ticket: string | null) =>
+    `docs/memory/decisions/${hubDay(Date.parse(created))}-${name}${ticket ? `-${ticket}` : ""}.md`;
+  const d = (x: Omit<Decision, "file_path"> & { name: string }): Decision => {
+    const { name, ...rest } = x;
+    return { ...rest, file_path: file(x.created_at, name, x.ticket) };
+  };
+  return [
+    d({
+      id: 1, ticket: "ATL-087", name: "trigram-search", created_at: ago(60 * 24 * 12),
+      title: "Keep trigram search on the small box",
+      decision: "Search stays on pg_trgm for now. We revisit when the hub moves to the bigger server.",
+      why: "bge-m3 embeddings took 900 ms a message on the 2-core box and starved the API.",
+      instead: "Embedding every message with bge-m3 right away",
+      decided_by: "backend", author: "backend-ai", status: "accepted", supersedes: null, superseded_by: null,
+      source_message: 4104, message_id: null,
+    }),
+    d({
+      id: 2, ticket: null, name: "session-cookie", created_at: ago(60 * 24 * 8),
+      title: "Session cookie is HttpOnly with SameSite=Lax",
+      decision: "The session cookie is `HttpOnly`, `Secure`, `SameSite=Lax`, and `/session` answers `Cache-Control: no-store`.",
+      why: "Lax keeps the Telegram deep links working; Strict logged people out when they came from t.me.",
+      instead: "SameSite=Strict",
+      decided_by: "backend", author: "backend-ai", status: "accepted", supersedes: null, superseded_by: null,
+      source_message: null, message_id: null,
+    }),
+    d({
+      id: 3, ticket: "ATL-118", name: "login-errors-toast", created_at: ago(60 * 24 * 6),
+      title: "Login errors show as a toast",
+      decision: "Failed logins show one toast at the top of the page with the server's message.",
+      why: "One place for every auth error, and the form stays compact.",
+      instead: "Inline errors under each field",
+      decided_by: "frontend", author: "frontend-ai", status: "superseded", supersedes: null, superseded_by: 5,
+      source_message: null, message_id: null,
+    }),
+    d({
+      id: 4, ticket: "ATL-032", name: "design-tokens", created_at: ago(60 * 24 * 3),
+      title: "Design tokens live in ui-kit/tokens.ts",
+      decision: "Colours, radii and spacing come from `ui-kit/tokens.ts` only.\n\n- No hex values in feature code\n- New tokens go through the ui-kit owner",
+      why: "Three teams were copying colours by hand and the login page drifted from the rest.",
+      instead: null,
+      decided_by: "frontend", author: "frontend-ai", status: "accepted", supersedes: null, superseded_by: null,
+      source_message: null, message_id: null,
+    }),
+    d({
+      id: 5, ticket: "ATL-118", name: "login-errors-inline", created_at: ago(9),
+      title: "Login errors show inline under each field",
+      decision: "Each login field shows its own error right under it, tied with aria-describedby. Errors that belong to no field go above the submit button.",
+      why: "Toasts got missed on phones, and screen readers announced them out of context.",
+      instead: "A toast at the top of the page",
+      decided_by: "frontend", author: "frontend-ai", status: "accepted", supersedes: 3, superseded_by: null,
+      source_message: sourceMessage, message_id: announcement,
+    }),
+  ];
 }
 
 function seedSecond(): Project {
@@ -471,6 +541,10 @@ async function handle(method: string, path: string, body: Record<string, unknown
     if (!pr) return fail(404, "not_found", "No such project, or you are not in it.");
     const rest = m[3] ?? "";
     if (!rest && method === "GET") return json(200, detail(pr));
+    if (rest === "/decisions" && method === "GET") {
+      const decisions = [...(pr.decisions ?? [])].sort((a, b) => b.id - a.id);
+      return json(200, { project: `${pr.item.org}/${pr.item.slug}`, decisions });
+    }
     if (rest === "/usage" && method === "GET") {
       const days = Number(url.searchParams.get("days") ?? 14);
       if (!Number.isInteger(days) || days < 1 || days > 90) return fail(400, "bad_request", "days must be between 1 and 90", "days");
