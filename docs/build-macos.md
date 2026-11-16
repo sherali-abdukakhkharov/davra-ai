@@ -86,11 +86,14 @@ installs `tauri-cli` 2.12.4 if it is missing, and bundles
 - **No Developer ID:** the app is signed ad hoc, so macOS asks once before the
   first start. Right-click the app and choose Open, or go to System Settings,
   then Privacy & Security, then Open Anyway.
-- **Auto-update:** `Davra_<version>_universal.app.tar.gz` and its `.sig` are made only when
-  `TAURI_SIGNING_PRIVATE_KEY` holds the updater key. That key lives on the
-  hub-maintainer's machine. Don't look for it or generate a new one: a new key
-  would not match the public key built into the app. Without it, skip
-  auto-update; the `.dmg` alone is fine.
+- **Auto-update:** `Davra_<version>_universal.app.tar.gz` and its `.sig` are
+  made only with the updater key. The user copies it by hand from the hub
+  maintainer's machine to `~/.davra-release/updater.key` on the Mac
+  (`chmod 600`), and the script picks it up from there. Don't search for it
+  anywhere else, and never generate a new one: a new key would not match the
+  public key built into the app. Never commit, upload or print it. If the file
+  isn't there, the script prints "no updater key" and builds the `.dmg` alone,
+  which is fine.
 
 Open the `.app` from `desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos/`
 and check that the window shows the hub connection and the CLI panel.
