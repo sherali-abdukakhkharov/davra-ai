@@ -12,6 +12,9 @@ pub struct ProjectFile {
     pub hub: Option<String>,
     pub org: Option<String>,
     pub project: String,
+    /// Where the repository keeps decision files. Default: `decisions` next to the
+    /// handoffs folder (docs/memory/decisions).
+    pub decisions: Option<String>,
     /// Where the repository keeps handoff files (docs/memory/handoffs convention).
     pub handoffs: Option<String>,
     #[serde(default)]

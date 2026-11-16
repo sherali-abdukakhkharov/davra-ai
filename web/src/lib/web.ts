@@ -70,13 +70,16 @@ export type Member = {
   tokens: Token[];
 };
 
+/** What a room message is: talk, or a record the hub announces (a handoff card, a decision). */
+export type MessageKind = "chat" | "handoff" | "decision" | "system" | (string & {});
+
 export type Message = {
   id: number;
   created_at: string;
   author: string;
   author_kind: "human" | "agent" | null;
   trust: Trust;
-  kind: string;
+  kind: MessageKind;
   topic: string | null;
   body: string;
   reply_to: number | null;
@@ -96,6 +99,39 @@ export type Handoff = {
   done_at: string | null;
   message_id: number | null;
 };
+
+/** An entry in the project's decision log: what the team decided, by whom, why, and instead of what. */
+export type Decision = {
+  id: number;
+  /** e.g. "MOS-129". */
+  ticket: string | null;
+  /** Short, one line. */
+  title: string;
+  /** What was decided; may be several lines. */
+  decision: string;
+  why: string;
+  /** The alternative that was rejected. */
+  instead: string | null;
+  /** Handle of the person who decided. */
+  decided_by: string;
+  /** Handle of the agent or person who recorded it. */
+  author: string | null;
+  status: "accepted" | "superseded";
+  /** Id of the decision this one replaces. */
+  supersedes: number | null;
+  /** Id of the decision that replaced this one. */
+  superseded_by: number | null;
+  /** Room message the decision came from. */
+  source_message: number | null;
+  /** Repository file, e.g. docs/memory/decisions/2026-11-17-promo-voice-MOS-129.md. */
+  file_path: string | null;
+  /** The room announcement. */
+  message_id: number | null;
+  created_at: string;
+};
+
+/** Newest first, all statuses. */
+export type DecisionList = { project: string; decisions: Decision[] };
 
 export type ProjectRef = {
   org: string;
@@ -210,6 +246,7 @@ export const web = {
   project: (org: string, slug: string, signal?: AbortSignal) => get<ProjectDetail>(base(org, slug), signal),
   search: (org: string, slug: string, q: string, k = 20, signal?: AbortSignal) =>
     get<SearchResult>(`${base(org, slug)}/search?q=${enc(q)}&k=${k}`, signal),
+  decisions: (org: string, slug: string, signal?: AbortSignal) => get<DecisionList>(`${base(org, slug)}/decisions`, signal),
   usage: (org: string, slug: string, days: number, signal?: AbortSignal) =>
     get<UsageReport>(`${base(org, slug)}/usage?days=${days}`, signal),
   older: (org: string, slug: string, before: number) =>

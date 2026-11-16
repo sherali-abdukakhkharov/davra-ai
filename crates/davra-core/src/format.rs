@@ -4,7 +4,8 @@
 //! bodies flattened and cut, and a hard character budget per output.
 
 use crate::api::{
-    Brief, HandoffList, HandoffView, Inbox, MessageContext, MessageView, SearchResults, Trust,
+    Brief, DecisionList, DecisionView, HandoffList, HandoffView, Inbox, MessageContext,
+    MessageView, SearchResults, Trust,
 };
 
 /// Rough budget: ~4 characters per token.
@@ -99,6 +100,14 @@ pub fn brief_text(b: &Brief) -> String {
             out.push_str("(more: call handoffs)\n");
         }
         out.push_str("Close one with handoff_done(id, note) when finished.\n\n");
+    }
+    if !b.decisions.is_empty() {
+        out.push_str("## Recent decisions\n");
+        for d in &b.decisions {
+            out.push_str(&decision_line(d));
+            out.push('\n');
+        }
+        out.push_str("Follow them; don't reopen a settled question unless your owner asks. decisions(ticket or id) shows more.\n\n");
     }
 
     if b.inbox.is_empty() {
@@ -277,6 +286,81 @@ pub fn context_text(c: &MessageContext) -> String {
     out
 }
 
+/// `D12 MOS-129 11-17 @ali_9737: Promo video voice` (+ `[superseded by D15]`).
+pub fn decision_line(d: &DecisionView) -> String {
+    let ticket = d
+        .ticket
+        .as_deref()
+        .map(|t| format!(" {t}"))
+        .unwrap_or_default();
+    let mut s = format!(
+        "D{}{} {} @{}: {}",
+        d.id,
+        ticket,
+        d.created_at.format("%m-%d"),
+        d.decided_by,
+        truncate_chars(&one_line(&d.title), 120)
+    );
+    if let Some(by) = d.superseded_by {
+        s.push_str(&format!(" [superseded by D{by}]"));
+    } else if d.status == "superseded" {
+        s.push_str(" [superseded]");
+    }
+    s
+}
+
+pub fn decisions_text(l: &DecisionList) -> String {
+    if l.decisions.is_empty() {
+        return format!("No decisions recorded in {} yet.", l.project);
+    }
+    let mut out = format!("{} decision(s) in {}:\n", l.decisions.len(), l.project);
+    for d in &l.decisions {
+        out.push_str(&decision_line(d));
+        out.push_str(&format!(
+            " | {}\n",
+            truncate_chars(&one_line(&d.decision), 160)
+        ));
+    }
+    out.push_str("decisions(id) shows one in full.\n");
+    out
+}
+
+pub fn decision_text(d: &DecisionView) -> String {
+    let mut out = format!(
+        "Decision D{}{} · {} · decided by @{} on {}\n",
+        d.id,
+        d.ticket
+            .as_deref()
+            .map(|t| format!(" · {t}"))
+            .unwrap_or_default(),
+        d.status,
+        d.decided_by,
+        d.created_at.format("%Y-%m-%d")
+    );
+    out.push_str(&format!("{}\n", d.title));
+    if let Some(p) = &d.file_path {
+        out.push_str(&format!("File: {p}\n"));
+    }
+    if let Some(m) = d.source_message {
+        out.push_str(&format!("From message #{m}\n"));
+    }
+    if let Some(o) = d.supersedes {
+        out.push_str(&format!("Replaces D{o}\n"));
+    }
+    if let Some(by) = d.superseded_by {
+        out.push_str(&format!("Replaced by D{by}: follow that one instead.\n"));
+    }
+    out.push_str(&format!(
+        "\nDecision: {}\nWhy: {}\n",
+        d.decision.trim(),
+        d.why.trim()
+    ));
+    if let Some(i) = d.instead.as_deref().filter(|i| !i.trim().is_empty()) {
+        out.push_str(&format!("Instead of: {}\n", i.trim()));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,6 +428,7 @@ mod tests {
             recent,
             total_messages: 200,
             handoffs: vec![],
+            decisions: vec![],
         };
         let t = brief_text(&b);
         assert!(t.len() <= BRIEF_BUDGET_CHARS + 200, "{}", t.len());

@@ -13,7 +13,7 @@ hand work off, and remember everything, without anyone copy-pasting between chat
 
 > Status: **v0.2** (handoffs, semantic search, ask_owner, GitHub webhooks) plus the first piece of
 > v0.3 (web accounts, RLS, self-serve Telegram linking) and Davra Desktop for Windows, macOS and Linux.
-> SSO and the decision log are on
+> The decision log is in. SSO is on
 > the [roadmap](#roadmap). Expect breaking changes before 1.0.
 
 ## How it works
@@ -134,6 +134,8 @@ which adds nothing to the context when there is nothing new.
 | `handoff_create` | hand work to an agent or role; writes the repo's handoff file and announces it |
 | `handoff_done` | close a handoff; updates the file and tells the sender |
 | `ask_owner` | ask your owner to decide; Telegram buttons; the answer comes back as `[owner]` |
+| `decision_record` | record a decision a person made: what, why, instead of what; writes a file in `docs/memory/decisions/` |
+| `decisions` | the decision log, or one decision in full |
 
 ### Handoffs and roles
 
@@ -141,6 +143,16 @@ If the repo keeps handoff files (for example `docs/memory/handoffs/YYYY-MM-DD-<f
 add `handoffs = "docs/memory/handoffs"` to `.davra.toml`. `davra brief --hook` syncs changed files
 (the first sync imports quietly). Give agents the roles they cover so role-addressed handoffs reach them:
 `davra-hub member roles backend-ai --set core,auth,db`.
+
+### Decision log
+
+When an owner decides something, their agent records it with `decision_record`: what, why, instead of
+what, and who decided. That person defaults to the agent's owner and is never an agent. The hub
+announces the decision in the room and Telegram. Every agent's `team_brief` lists the five latest
+accepted ones. The repository keeps each as a file in `docs/memory/decisions/`; set
+`decisions = "..."` in `.davra.toml` to use another folder. A new decision can supersede an old
+one, and the old file is marked. People read the log in the web app's Decisions tab or with
+`davra decisions`.
 
 ### Semantic search (optional)
 

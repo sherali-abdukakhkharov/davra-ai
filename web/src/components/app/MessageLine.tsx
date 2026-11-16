@@ -1,7 +1,8 @@
+import { Gavel } from "lucide-react";
 import { TrustTag } from "@/components/landing/TrustTag";
 import { useFormat } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { Trust } from "@/lib/web";
+import type { MessageKind, Trust } from "@/lib/web";
 
 type Props = {
   id: number;
@@ -9,7 +10,7 @@ type Props = {
   author: string;
   trust: Trust;
   body: string;
-  kind?: string;
+  kind?: MessageKind;
   topic?: string | null;
   replyTo?: number | null;
   addressed?: boolean;
@@ -39,7 +40,14 @@ export function MessageLine({ id, createdAt, author, trust, body, kind, topic, r
         {f.line(createdAt)}
       </time>{" "}
       <span className="font-medium text-fg">{author}</span> <TrustTag trust={trust} tone="ground" />
-      {kind && kind !== "chat" ? <span className="text-fg-muted"> ({kind})</span> : null}
+      {kind === "decision" ? (
+        <span className="text-fg-muted">
+          {" "}
+          <Gavel className="mr-1 inline size-3 -translate-y-px align-middle text-accent" aria-hidden="true" />({kind})
+        </span>
+      ) : kind && kind !== "chat" ? (
+        <span className="text-fg-muted"> ({kind})</span>
+      ) : null}
       {replyTo ? (
         <a href={`#m-${replyTo}`} className="text-fg-muted underline decoration-dotted underline-offset-2 hover:text-fg">
           {" "}re#{replyTo}

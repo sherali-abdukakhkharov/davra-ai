@@ -86,6 +86,19 @@ enum Cmd {
     /// Print the commands that connect Claude Code to Davra.
     /// Answer a question one of your agents asked you (ask_owner).
     Answer { id: i64, answer: String },
+    /// The project's decision log (accepted decisions, newest first).
+    Decisions {
+        /// Show one decision (D<n>) in full.
+        id: Option<i64>,
+        /// Include replaced (superseded) decisions.
+        #[arg(long)]
+        all: bool,
+        /// Only decisions for this ticket.
+        #[arg(long)]
+        ticket: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+    },
     /// Handoff files in this repository (see handoffs in .davra.toml).
     #[command(subcommand)]
     Handoffs(HandoffsCmd),
@@ -421,6 +434,23 @@ async fn run(cli: Cli) -> Result<()> {
                 .handoffs(&p, &status, if all { "all" } else { "me" })
                 .await?;
             print!("{}", format::handoffs_text(&l));
+        }
+        Cmd::Decisions {
+            id,
+            all,
+            ticket,
+            project,
+        } => {
+            let (client, target) = client_for(&cwd, Duration::from_secs(15))?;
+            if let Some(id) = id {
+                print!("{}", format::decision_text(&client.decision(id).await?));
+            } else {
+                let p = client
+                    .resolve_project(project.as_deref().or(target.project.as_deref()))
+                    .await?;
+                let l = client.decisions(&p, all, ticket.as_deref()).await?;
+                print!("{}", format::decisions_text(&l));
+            }
         }
         Cmd::Claude { args } => {
             // Channels are a research preview: a server outside Anthropic's

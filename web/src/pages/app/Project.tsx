@@ -2,6 +2,7 @@ import { ArrowLeft, Send } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { AgentsTab } from "@/components/app/AgentsTab";
+import { DecisionsTab } from "@/components/app/DecisionsTab";
 import { HandoffsTab } from "@/components/app/HandoffsTab";
 import { MembersTab } from "@/components/app/MembersTab";
 import { RoomTab } from "@/components/app/RoomTab";
@@ -16,7 +17,7 @@ import { cn } from "@/lib/utils";
 import { isAdmin, web, type Member, type ProjectDetail } from "@/lib/web";
 import { shell } from "./Overview";
 
-const TABS = ["room", "search", "handoffs", "members", "agents", "usage"] as const;
+const TABS = ["room", "search", "handoffs", "decisions", "members", "agents", "usage"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function Project() {
@@ -112,6 +113,8 @@ export default function Project() {
           <UsageTab org={org} slug={slug} />
         ) : tab === "handoffs" ? (
           <HandoffsTab handoffs={d.handoffs} />
+        ) : tab === "decisions" ? (
+          <DecisionsTab key={here} org={org} slug={slug} />
         ) : tab === "members" ? (
           <div className="flex flex-col gap-10">
             <TelegramGroup key={here} project={d.project} onChanged={() => void res.reload({ quiet: true })} />

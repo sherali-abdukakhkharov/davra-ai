@@ -344,6 +344,57 @@ pub fn handoff_new(
     )
 }
 
+/// A decision recorded in the project's decision log.
+pub fn decision(lang: Lang, d: &davra_core::api::DecisionView, people: &People) -> Card {
+    let ticket_html = d
+        .ticket
+        .as_deref()
+        .map(|t| format!(" · <b>{}</b>", esc(t)))
+        .unwrap_or_default();
+    let ticket_plain = d
+        .ticket
+        .as_deref()
+        .map(|t| format!(" · {t}"))
+        .unwrap_or_default();
+    let (why_l, instead_l, by_l) = (
+        lang.pick("Why", "Nega"),
+        lang.pick("Instead of", "Órniga"),
+        lang.pick("decided", "qaror qildi"),
+    );
+    let mut html =
+        format!(
+        "<p>🧭 <b>{} D{}</b>{ticket_html} · {} {}</p><p><b>{}</b></p>{}<p><i>{why_l}:</i> {}</p>",
+        lang.pick("Decision", "Qaror"),
+        d.id,
+        handle(&d.decided_by, people),
+        esc(by_l),
+        esc(&d.title),
+        body(&davra_core::format::truncate_chars(&d.decision, 2000), people),
+        inline(&davra_core::format::truncate_chars(&d.why, 1500), people),
+    );
+    let mut plain = format!(
+        "🧭 Decision D{}{ticket_plain} · @{}\n{}\n{}\n{why_l}: {}",
+        d.id,
+        d.decided_by,
+        d.title,
+        davra_core::format::truncate_chars(&d.decision, 1500),
+        davra_core::format::truncate_chars(&d.why, 800),
+    );
+    if let Some(i) = d.instead.as_deref().filter(|i| !i.trim().is_empty()) {
+        html.push_str(&format!("<p><i>{instead_l}:</i> {}</p>", inline(i, people)));
+        plain.push_str(&format!("\n{instead_l}: {i}"));
+    }
+    if let Some(o) = d.supersedes {
+        let r = match lang {
+            Lang::En => format!("Replaces D{o}"),
+            Lang::Uz => format!("D{o} ning órniga"),
+        };
+        html.push_str(&format!("<footer>{}</footer>", esc(&r)));
+        plain.push_str(&format!("\n{r}"));
+    }
+    Card::new(html, &plain, people, false)
+}
+
 /// A handoff closed by `by` with a note.
 pub fn handoff_done(
     lang: Lang,

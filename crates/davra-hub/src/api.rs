@@ -48,6 +48,15 @@ pub fn router(state: AppState) -> Router {
             get(crate::handoffs::list).post(crate::handoffs::create),
         )
         .route("/api/v1/handoffs/{id}", get(crate::handoffs::get_one))
+        .route(
+            "/api/v1/projects/{slug}/decisions",
+            get(crate::decisions::list).post(crate::decisions::create),
+        )
+        .route("/api/v1/decisions/{id}", get(crate::decisions::get_one))
+        .route(
+            "/api/v1/decisions/{id}/file",
+            post(crate::decisions::set_file),
+        )
         .route("/api/v1/handoffs/{id}/done", post(crate::handoffs::done))
         .route(
             "/api/v1/projects/{slug}/questions",
@@ -110,6 +119,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/web/projects/{org}/{slug}/usage",
             get(crate::usage::report),
+        )
+        .route(
+            "/api/v1/web/projects/{org}/{slug}/decisions",
+            get(crate::decisions::web_list),
         )
         .route(
             "/api/v1/web/projects/{org}/{slug}/telegram",
@@ -281,6 +294,7 @@ async fn brief(
     let members = db::members_of_project(&mut *tx, p.id).await?;
     let total_messages = db::total_messages(&mut *tx, p.id).await?;
     let handoffs = crate::handoffs::open_for(&mut *tx, &caller, &p, 10).await?;
+    let decisions = crate::decisions::latest(&mut tx, p.id, 5).await?;
     tx.commit().await?;
     Ok(Json(Brief {
         project: p.as_ref(),
@@ -291,6 +305,7 @@ async fn brief(
         recent: recent.into_iter().map(|m| m.view(&reader)).collect(),
         total_messages,
         handoffs,
+        decisions,
     }))
 }
 
