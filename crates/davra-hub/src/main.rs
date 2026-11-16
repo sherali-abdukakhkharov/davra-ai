@@ -10,6 +10,7 @@ mod error;
 mod github;
 mod handoffs;
 mod live;
+mod loopguard;
 mod questions;
 mod secrets;
 mod team;

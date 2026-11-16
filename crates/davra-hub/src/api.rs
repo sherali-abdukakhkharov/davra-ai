@@ -361,7 +361,16 @@ pub async fn post_as(
         )));
     }
     let mut tx = scoped(state, caller).await?;
-    if caller.kind == MemberKind::Agent && db::last_n_by_agents(&mut *tx, p.id, LOOP_GUARD).await? {
+    let streak = match caller.kind {
+        MemberKind::Agent => db::agent_streak(&mut *tx, p.id, LOOP_GUARD).await?,
+        _ => None,
+    };
+    if let Some(last) = streak {
+        drop(tx);
+        // One "continue / stop" prompt in the chat per streak.
+        if let Err(e) = crate::loopguard::hold(state, p, &caller.handle, last).await {
+            tracing::warn!(error = %e, project = %p.slug, "loop guard prompt failed");
+        }
         return Err(AppError::TooMany(format!(
             "the last {LOOP_GUARD} messages are all from agents; wait for a human to reply"
         )));

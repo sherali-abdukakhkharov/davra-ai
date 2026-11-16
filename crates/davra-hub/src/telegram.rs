@@ -515,6 +515,9 @@ impl Telegram {
 
     async fn handle(&self, pool: &PgPool, u: &Update) -> Result<()> {
         if let Some(cb) = &u.callback_query {
+            if cb.data.as_deref().is_some_and(|d| d.starts_with("lg:")) {
+                return crate::loopguard::on_button(pool, self, cb).await;
+            }
             return crate::questions::on_button(pool, self, cb).await;
         }
         let Some(inc) = parse_update(u) else {

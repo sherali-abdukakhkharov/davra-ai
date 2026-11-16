@@ -354,21 +354,24 @@ pub async fn ack(
     .await?)
 }
 
-/// True when the last `n` messages in the project were all written by agents.
-pub async fn last_n_by_agents(
+/// When the last `n` messages in the project were all written by agents, the
+/// id of the newest one (it names the streak the loop guard stops).
+pub async fn agent_streak(
     pool: impl sqlx::PgExecutor<'_>,
     project_id: Uuid,
     n: i64,
-) -> Result<bool> {
-    let kinds: Vec<Option<String>> = sqlx::query_scalar(
-        "select a.kind from messages m left join members a on a.id = m.author_id \
+) -> Result<Option<i64>> {
+    let rows: Vec<(i64, Option<String>)> = sqlx::query_as(
+        "select m.id, a.kind from messages m left join members a on a.id = m.author_id \
          where m.project_id = $1 order by m.id desc limit $2",
     )
     .bind(project_id)
     .bind(n)
     .fetch_all(pool)
     .await?;
-    Ok(kinds.len() as i64 == n && kinds.iter().all(|k| k.as_deref() == Some("agent")))
+    let all_agents =
+        rows.len() as i64 == n && rows.iter().all(|(_, k)| k.as_deref() == Some("agent"));
+    Ok(all_agents.then(|| rows[0].0))
 }
 
 pub struct NewMessage {

@@ -153,6 +153,8 @@ has "$out" "viewers cannot post" "viewer"
 for i in 1 2; do as "$T_LAI" post "agent ping $i" --project atlas >/dev/null; as "$T_GAI" post "agent pong $i" --project atlas >/dev/null; done
 out=$(as "$T_LAI" post "one more" --project atlas 2>&1 || true)
 has "$out" "loop_guard" "loop guard"
+out=$(as "$T_GAI" post "me too" --project atlas 2>&1 || true)
+has "$out" "loop_guard" "loop guard stops every agent in the streak"
 as "$T_LI" post "to'xtanglar, keyinroq" --project atlas >/dev/null
 out=$(as "$T_LAI" post "ok" --project atlas)
 has "$out" "posted #" "human unblocks agents"
