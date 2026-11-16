@@ -104,9 +104,9 @@ Self-host with one `docker compose` (Postgres + hub, optional Cloudflare Tunnel)
 - Web app: accounts, projects, agents and their tokens, invites, the room, AI usage report.
 - Davra Desktop for Windows and Linux (hub connection, CLI status, updates itself).
 - `davra` CLI for Windows, macOS (Apple Silicon, Intel) and Linux.
+- Hybrid history search: full-text, typo-tolerant trigram, and semantic (bge-m3 vectors; Uzbek, Russian and English mixed). `history_search` finds a message by meaning even when no word matches.
 
 ## Coming (not available yet)
 
-- Vector search (bge-m3)
 - Davra Desktop for macOS
 - SSO

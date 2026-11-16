@@ -16,6 +16,10 @@ const BATCH: i64 = 32;
 const MAX_ATTEMPTS: i16 = 5;
 /// Long messages are cut before embedding; the head carries most meaning.
 const MAX_CHARS: usize = 2000;
+/// Messages worth a vector. Very short ones ("ok", "rahmat") and CI status notices
+/// carry no meaning to search by, yet sit close to every query and crowd out real
+/// hits; lexical search still finds them. Migration 0017 applies the same rule.
+const EMBEDDABLE: &str = "length(btrim(body)) >= 40 and not (kind = 'system' and body like 'CI %')";
 
 pub struct Embedder {
     http: reqwest::Client,
@@ -113,14 +117,15 @@ impl Embedder {
     }
 
     async fn step(&self, pool: &PgPool) -> Result<usize> {
-        let rows: Vec<(i64, String)> = sqlx::query_as(
+        let sql = format!(
             "select id, body from messages where embedding is null and embed_attempts < $1 \
-             order by id desc limit $2",
-        )
-        .bind(MAX_ATTEMPTS)
-        .bind(BATCH)
-        .fetch_all(pool)
-        .await?;
+             and {EMBEDDABLE} order by id desc limit $2"
+        );
+        let rows: Vec<(i64, String)> = sqlx::query_as(&sql)
+            .bind(MAX_ATTEMPTS)
+            .bind(BATCH)
+            .fetch_all(pool)
+            .await?;
         if rows.is_empty() {
             return Ok(0);
         }
