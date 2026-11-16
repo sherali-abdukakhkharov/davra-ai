@@ -54,8 +54,8 @@ enum Cmd {
         /// Hook mode: print nothing when empty, mark printed messages as read.
         #[arg(long)]
         hook: bool,
-        /// With --hook, as a Stop hook: new messages keep the agent going
-        /// instead of waiting for the next prompt.
+        /// With --hook, as a Stop hook: new messages from the owner keep the
+        /// agent going instead of waiting for the next prompt; others wait.
         #[arg(long, requires = "hook")]
         stop: bool,
         #[arg(long)]
@@ -185,6 +185,7 @@ async fn inbox(
     cwd: PathBuf,
     project: Option<String>,
     hook: bool,
+    stop: bool,
     timeout: Duration,
 ) -> Result<String> {
     let (client, target) = client_for(&cwd, timeout)?;
@@ -192,6 +193,12 @@ async fn inbox(
         .resolve_project(project.as_deref().or(target.project.as_deref()))
         .await?;
     let i = client.inbox(&p, 20).await?;
+    // Only the owner (or the owner's other agent) can keep a finished turn
+    // going. Messages from teammates and their agents stay unread and arrive
+    // with the next prompt, so a backlog doesn't force an extra turn.
+    if stop && !keeps_going(&i.messages) {
+        return Ok(String::new());
+    }
     let text = format::inbox_text(&i, hook);
     // In hook mode the text goes straight into the agent's context, so the
     // messages count as delivered.
@@ -203,13 +210,21 @@ async fn inbox(
     Ok(text)
 }
 
+fn keeps_going(messages: &[davra_core::api::MessageView]) -> bool {
+    use davra_core::api::Trust;
+    messages
+        .iter()
+        .any(|m| matches!(m.trust, Trust::Owner | Trust::Myself))
+}
+
 fn read_token(token_stdin: bool) -> Result<String> {
     let mut token = String::new();
     if token_stdin || !std::io::stdin().is_terminal() {
         std::io::stdin().read_to_string(&mut token)?;
     } else {
-        eprint!("Paste your Davra token (input is not hidden yet): ");
-        std::io::stdin().read_line(&mut token)?;
+        // Echo off, so the token never lands in the terminal's scrollback.
+        token = rpassword::prompt_password("Paste your Davra token (hidden): ")
+            .context("reading the token")?;
     }
     let token = token.trim().to_string();
     if !token.starts_with("dvr_") {
@@ -316,7 +331,7 @@ async fn run(cli: Cli) -> Result<()> {
                 if stop && (mcp::channel_mode() || input["stop_hook_active"] == true) {
                     return Ok(());
                 }
-                match inbox(cwd, project, true, Duration::from_secs(3)).await {
+                match inbox(cwd, project, true, stop, Duration::from_secs(3)).await {
                     Ok(t) if stop && !t.is_empty() => println!(
                         "{}",
                         serde_json::json!({ "decision": "block", "reason": t })
@@ -327,7 +342,7 @@ async fn run(cli: Cli) -> Result<()> {
             } else {
                 println!(
                     "{}",
-                    inbox(cwd, project, false, Duration::from_secs(15)).await?
+                    inbox(cwd, project, false, false, Duration::from_secs(15)).await?
                 );
             }
         }
