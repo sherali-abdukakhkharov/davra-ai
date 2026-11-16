@@ -55,7 +55,7 @@ out=$("$HUB" import-telegram atlas "$WORK/result.json")
 has "$out" "0 imported" "re-import is idempotent"
 ok "telegram export import (idempotent)"
 
-mkdir -p "$WORK/desktop" && echo '{"version":"9.9.9","pub_date":"2026-11-13T00:00:00Z","files":[{"os":"linux","kind":"appimage","name":"Davra_9.9.9_amd64.AppImage","size":6,"sha256":"abc123","signature":"c2lnbmVk"}]}' >"$WORK/desktop/latest.json" && echo setup >"$WORK/desktop/Davra_9.9.9_x64-setup.exe"
+mkdir -p "$WORK/desktop" && echo '{"version":"9.9.9","pub_date":"2026-11-13T00:00:00Z","files":[{"os":"linux","kind":"appimage","name":"Davra_9.9.9_amd64.AppImage","size":6,"sha256":"abc123","signature":"c2lnbmVk"},{"os":"macos","kind":"app","version":"9.9.8","name":"Davra_9.9.8_universal.app.tar.gz","size":6,"sha256":"def456","signature":"c2lnbmVk"}]}' >"$WORK/desktop/latest.json" && echo setup >"$WORK/desktop/Davra_9.9.9_x64-setup.exe"
 "$HUB" serve --bind "127.0.0.1:$PORT" --no-migrate --desktop-dir "$WORK/desktop" --cookie-secure false --client-ip-header cf-connecting-ip >"$WORK/hub.log" 2>&1 &
 HUB_PID=$!
 trap 'kill $HUB_PID 2>/dev/null || true; rm -rf "$DAVRA_HOME" "$WORK"' EXIT
@@ -500,6 +500,12 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "$DAVRA_HUB/api/v1/desktop/update?
 [ "$code" = 204 ] || fail "up to date -> $code"
 code=$(curl -s -o /dev/null -w '%{http_code}' "$DAVRA_HUB/api/v1/desktop/update?target=windows&arch=x86_64&current=0.2.1")
 [ "$code" = 204 ] || fail "no signed installer for that platform -> $code"
+# macOS is built on a Mac and may lag: its file's own version is offered.
+out=$(curl -fs "$DAVRA_HUB/api/v1/desktop/update?target=darwin&arch=aarch64&current=0.2.1")
+has "$out" '"version":"9.9.8"' "macOS update offered at its own version"
+has "$out" '/desktop/Davra_9.9.8_universal.app.tar.gz?sha=def456' "macOS update URL"
+code=$(curl -s -o /dev/null -w '%{http_code}' "$DAVRA_HUB/api/v1/desktop/update?target=darwin&arch=aarch64&current=9.9.8")
+[ "$code" = 204 ] || fail "macOS up to date -> $code"
 ok "one-line installers and Davra Desktop served by the hub; connect commands include them"
 
 echo "== rename"

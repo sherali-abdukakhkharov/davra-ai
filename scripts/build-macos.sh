@@ -10,7 +10,7 @@
 # Output: dist-macos/ (gitignored)
 #   davra-macos-aarch64, davra-macos-x86_64      CLI, ad-hoc signed
 #   Davra_<version>_universal.dmg                Desktop (with `desktop`)
-#   Davra.app.tar.gz(.sig)                       Desktop update bundle (with TAURI_SIGNING_PRIVATE_KEY)
+#   Davra_<version>_universal.app.tar.gz(.sig)   Desktop update bundle (with TAURI_SIGNING_PRIVATE_KEY)
 #   SHA256SUMS-macos
 #
 # Env: TAURI_SIGNING_PRIVATE_KEY (+ _PASSWORD) — the Desktop updater key; without it
@@ -89,8 +89,8 @@ if [[ " ${what[*]} " == *" desktop "* ]]; then
   bundle=desktop/src-tauri/target/universal-apple-darwin/release/bundle
   cp "$bundle"/dmg/*.dmg "$out/Davra_${version}_universal.dmg"
   if $sign; then
-    cp "$bundle"/macos/*.app.tar.gz "$out/Davra.app.tar.gz"
-    cp "$bundle"/macos/*.app.tar.gz.sig "$out/Davra.app.tar.gz.sig"
+    cp "$bundle"/macos/*.app.tar.gz "$out/Davra_${version}_universal.app.tar.gz"
+    cp "$bundle"/macos/*.app.tar.gz.sig "$out/Davra_${version}_universal.app.tar.gz.sig"
   fi
 fi
 
