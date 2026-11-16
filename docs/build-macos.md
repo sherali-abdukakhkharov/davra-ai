@@ -86,7 +86,7 @@ installs `tauri-cli` 2.12.4 if it is missing, and bundles
 - **No Developer ID:** the app is signed ad hoc, so macOS asks once before the
   first start. Right-click the app and choose Open, or go to System Settings,
   then Privacy & Security, then Open Anyway.
-- **Auto-update:** `Davra.app.tar.gz` and its `.sig` are made only when
+- **Auto-update:** `Davra_<version>_universal.app.tar.gz` and its `.sig` are made only when
   `TAURI_SIGNING_PRIVATE_KEY` holds the updater key. That key lives on the
   hub-maintainer's machine. Don't look for it or generate a new one: a new key
   would not match the public key built into the app. Without it, skip
@@ -126,5 +126,9 @@ curl -fsSL https://davra.qitmir.uz/install.sh | sh
 this. A binary downloaded through a browser would need
 `xattr -d com.apple.quarantine <file>`.
 
-The hub does not serve the Desktop `.dmg` or its auto-update yet. Those stay
-on the GitHub Release until the hub supports macOS.
+When the release also has the Desktop files, the fetch script puts them in
+`desktop/dist/publish/` and rewrites `latest.json` with `scripts/desktop-manifest.sh`.
+Each file there keeps its own version, so a Mac build can come later than the
+Windows and Linux ones. The web app then offers the `.dmg`. Apps signed with
+the updater key update themselves from `Davra_<version>_universal.app.tar.gz`:
+the hub answers `target=darwin` on `/api/v1/desktop/update`.

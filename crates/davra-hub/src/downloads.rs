@@ -172,6 +172,43 @@ fn newer(candidate: &str, current: &str) -> bool {
     parts(candidate) > parts(current)
 }
 
+/// The signed in-place update for a platform in `latest.json`, if newer than
+/// `current`: the NSIS installer on Windows, the AppImage on Linux, the
+/// universal .app bundle on macOS (a .deb or .dmg is updated by installing the
+/// new one). Each file carries its own version, since macOS builds are made on
+/// a Mac and published apart from the others.
+fn pick_update<'a>(
+    latest: &'a serde_json::Value,
+    target: &str,
+    arch: &str,
+    current: &str,
+) -> Option<(&'a str, &'a serde_json::Value)> {
+    let kind = match (target, arch) {
+        ("windows", "x86_64") => "nsis",
+        ("linux", "x86_64") => "appimage",
+        ("darwin" | "macos", "aarch64" | "x86_64") => "app",
+        _ => return None,
+    };
+    latest["files"]
+        .as_array()?
+        .iter()
+        .filter(|f| f["kind"] == kind && f["signature"].is_string())
+        .filter_map(|f| {
+            let v = f["version"].as_str().or(latest["version"].as_str())?;
+            Some((v, f))
+        })
+        .filter(|(v, _)| newer(v, current))
+        .max_by(|(a, _), (b, _)| {
+            if newer(a, b) {
+                std::cmp::Ordering::Greater
+            } else if newer(b, a) {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
+}
+
 /// What Davra Desktop's updater asks the hub it is connected to (Tauri's dynamic
 /// update format): 204 when there is nothing newer for that platform, else the
 /// signed installer to fetch. The signature is checked by the app against the
@@ -192,23 +229,7 @@ pub async fn desktop_update(
     else {
         return none();
     };
-    let Some(version) = latest["version"].as_str() else {
-        return none();
-    };
-    if !newer(version, &q.current) {
-        return none();
-    }
-    // In-place updates: the NSIS installer on Windows, the AppImage on Linux
-    // (a .deb is updated by installing the new .deb).
-    let kind = match (q.target.as_str(), q.arch.as_str()) {
-        ("windows", "x86_64") => "nsis",
-        ("linux", "x86_64") => "appimage",
-        _ => return none(),
-    };
-    let Some(file) = latest["files"].as_array().and_then(|fs| {
-        fs.iter()
-            .find(|f| f["kind"] == kind && f["signature"].is_string())
-    }) else {
+    let Some((version, file)) = pick_update(&latest, &q.target, &q.arch, &q.current) else {
         return none();
     };
     let hub = hub_url(&state, &headers);
@@ -242,6 +263,26 @@ mod tests {
         assert!(newer("1.0.0", "0.9.0-beta.1"));
         assert!(!newer("0.2.1", "0.2.1"));
         assert!(!newer("0.2.0", "0.2.1"));
+    }
+    #[test]
+    fn updates_are_picked_per_platform_and_file_version() {
+        let latest = serde_json::json!({ "version": "0.2.5", "files": [
+            { "os": "windows", "kind": "nsis", "version": "0.2.5", "name": "w", "signature": "s" },
+            { "os": "linux", "kind": "deb", "version": "0.2.5", "name": "d" },
+            { "os": "linux", "kind": "appimage", "name": "a", "signature": "s" },
+            { "os": "macos", "kind": "dmg", "version": "0.2.4", "name": "m.dmg" },
+            { "os": "macos", "kind": "app", "version": "0.2.4", "name": "m", "signature": "s" },
+        ]});
+        let pick =
+            |t, a, c| pick_update(&latest, t, a, c).map(|(v, f)| (v, f["name"].as_str().unwrap()));
+        assert_eq!(pick("windows", "x86_64", "0.2.4"), Some(("0.2.5", "w")));
+        // A file without its own version has the manifest's.
+        assert_eq!(pick("linux", "x86_64", "0.2.4"), Some(("0.2.5", "a")));
+        // macOS lags behind: its own version counts, not the manifest's.
+        assert_eq!(pick("darwin", "aarch64", "0.2.3"), Some(("0.2.4", "m")));
+        assert_eq!(pick("darwin", "x86_64", "0.2.4"), None);
+        assert_eq!(pick("windows", "x86_64", "0.2.5"), None);
+        assert_eq!(pick("windows", "aarch64", "0.2.0"), None);
     }
     #[test]
     fn scripts_have_the_hub_and_verify_checksums() {

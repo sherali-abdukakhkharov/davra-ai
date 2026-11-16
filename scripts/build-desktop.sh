@@ -156,28 +156,26 @@ docker run --rm \
 # checksums and latest.json, which the web app reads to offer the download.
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' desktop/src-tauri/Cargo.toml | head -1)
 pub=desktop/dist/publish
-rm -rf "$pub" && mkdir -p "$pub"
-entries=()
-for spec in "windows:nsis:desktop/dist/windows/Davra_${version}_x64-setup.exe" \
-            "linux:deb:desktop/dist/linux/Davra_${version}_amd64.deb" \
-            "linux:appimage:desktop/dist/linux/Davra_${version}_amd64.AppImage"; do
-  IFS=: read -r os kind file <<<"$spec"
+mkdir -p "$pub"
+copied=false
+for spec in "windows:desktop/dist/windows/Davra_${version}_x64-setup.exe" \
+            "linux:desktop/dist/linux/Davra_${version}_amd64.deb" \
+            "linux:desktop/dist/linux/Davra_${version}_amd64.AppImage"; do
+  IFS=: read -r os file <<<"$spec"
   [[ -f "$file" ]] || continue
+  # One version per kind: earlier builds of this file type go. macOS files
+  # (scripts/fetch-macos-clients.sh) are left alone.
+  case "$file" in
+    *_x64-setup.exe) rm -f "$pub"/Davra_*_x64-setup.exe "$pub"/Davra_*_x64-setup.exe.sig ;;
+    *_amd64.deb) rm -f "$pub"/Davra_*_amd64.deb ;;
+    *_amd64.AppImage) rm -f "$pub"/Davra_*_amd64.AppImage "$pub"/Davra_*_amd64.AppImage.sig ;;
+  esac
   cp "$file" "$pub/"
-  name=$(basename "$file")
-  size=$(wc -c <"$file" | tr -d ' ')
-  sum=$(sha256sum "$file" | cut -d' ' -f1)
-  # The updater's signature (base64 minisign) for the installers that can update in place.
-  sig=""
-  [[ -f "$file.sig" ]] && sig=",\"signature\":\"$(tr -d '\r\n' <"$file.sig")\""
-  entries+=("{\"os\":\"$os\",\"kind\":\"$kind\",\"name\":\"$name\",\"size\":$size,\"sha256\":\"$sum\"$sig}")
+  # The updater's signature, for the installers that can update in place.
+  [[ -f "$file.sig" ]] && cp "$file.sig" "$pub/"
+  copied=true
 done
-if [[ ${#entries[@]} -gt 0 ]]; then
-  (cd "$pub" && sha256sum -- *.exe *.deb *.AppImage 2>/dev/null >SHA256SUMS || true)
-  printf '{"version":"%s","pub_date":"%s","files":[%s]}\n' "$version" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    "$(IFS=,; echo "${entries[*]}")" >"$pub/latest.json"
-  echo "==> publish: $pub ($(cat "$pub/latest.json" | head -c 200)...)"
-fi
+$copied && scripts/desktop-manifest.sh "$pub"
 
 echo "==> done in $((SECONDS - total_start))s"
 find desktop/dist -maxdepth 2 -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*-setup.exe' \) -exec ls -l {} +

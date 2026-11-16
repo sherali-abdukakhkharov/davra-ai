@@ -2,7 +2,15 @@ import { Download, MonitorDown } from "lucide-react";
 import { useEffect, useState } from "react";
 import { usePrefs } from "@/lib/prefs";
 
-type DesktopFile = { os: "windows" | "linux"; kind: "nsis" | "deb" | "appimage"; name: string; size: number; sha256: string };
+type DesktopFile = {
+  os: "windows" | "linux" | "macos";
+  kind: "nsis" | "deb" | "appimage" | "dmg" | "app";
+  /** Its own version: macOS builds are published apart from the others. */
+  version?: string;
+  name: string;
+  size: number;
+  sha256: string;
+};
 type Latest = { version: string; files: DesktopFile[] };
 
 /** The hub serves Davra Desktop under /desktop when its operator built it (scripts/build-desktop.sh). */
@@ -18,7 +26,13 @@ async function loadLatest(signal: AbortSignal): Promise<Latest | null> {
 }
 
 const viewerOs = (): DesktopFile["os"] | null =>
-  /Windows/i.test(navigator.userAgent) ? "windows" : /Linux|X11/i.test(navigator.userAgent) ? "linux" : null;
+  /Windows/i.test(navigator.userAgent)
+    ? "windows"
+    : /Macintosh|Mac OS X/i.test(navigator.userAgent)
+      ? "macos"
+      : /Linux|X11/i.test(navigator.userAgent)
+        ? "linux"
+        : null;
 
 const mb = (n: number) => `${(n / 1_048_576).toFixed(n < 10_485_760 ? 1 : 0)} MB`;
 
@@ -34,8 +48,10 @@ export function DesktopDownload() {
   }, []);
   if (!latest) return null;
   const os = viewerOs();
-  const files = [...latest.files].sort((a, b) => Number(b.os === os) - Number(a.os === os));
-  const label = (f: DesktopFile) => (f.kind === "nsis" ? d.windows : f.kind === "deb" ? d.deb : d.appimage);
+  // The .app bundle is only for the updater; people install the .dmg.
+  const files = latest.files.filter((f) => f.kind !== "app").sort((a, b) => Number(b.os === os) - Number(a.os === os));
+  const label = (f: DesktopFile) =>
+    f.kind === "nsis" ? d.windows : f.kind === "deb" ? d.deb : f.kind === "dmg" ? d.mac : d.appimage;
   return (
     <section className="rounded-md border border-rule-strong bg-bg-raised px-4 py-3">
       <p className="flex items-center gap-2 text-sm font-semibold">
@@ -58,7 +74,10 @@ export function DesktopDownload() {
             >
               <Download className="size-4" aria-hidden="true" />
               {label(f)}
-              <span className="font-mono text-xs text-fg-muted">{mb(f.size)}</span>
+              <span className="font-mono text-xs text-fg-muted">
+                {f.version && f.version !== latest.version ? `v${f.version} · ` : ""}
+                {mb(f.size)}
+              </span>
             </a>
           </li>
         ))}
