@@ -109,6 +109,9 @@ pub struct Brief {
     /// Open handoffs addressed to the reader (by handle or role).
     #[serde(default)]
     pub handoffs: Vec<HandoffView>,
+    /// The latest accepted decisions, newest first.
+    #[serde(default)]
+    pub decisions: Vec<DecisionView>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -268,4 +271,59 @@ pub struct SyncedHandoff {
 pub struct HandoffList {
     pub project: String,
     pub handoffs: Vec<HandoffView>,
+}
+
+/// A decision in the project's decision log.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DecisionView {
+    pub id: i64,
+    pub ticket: Option<String>,
+    pub title: String,
+    pub decision: String,
+    pub why: String,
+    pub instead: Option<String>,
+    /// Handle of the person who decided.
+    pub decided_by: String,
+    /// Handle of whoever recorded it (usually an agent).
+    pub author: Option<String>,
+    /// `accepted` or `superseded`.
+    pub status: String,
+    pub supersedes: Option<i64>,
+    pub superseded_by: Option<i64>,
+    /// The room message the decision came from.
+    pub source_message: Option<i64>,
+    /// The repository file, e.g. `docs/memory/decisions/2026-11-17-promo-voice-MOS-129.md`.
+    pub file_path: Option<String>,
+    /// The room announcement.
+    pub message_id: Option<i64>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct DecisionCreate {
+    /// Short, one line. Defaults to the start of `decision`.
+    pub title: Option<String>,
+    pub decision: String,
+    pub why: String,
+    /// The alternative that was rejected.
+    pub instead: Option<String>,
+    pub ticket: Option<String>,
+    /// Handle of the person who decided; defaults to the caller's owner (or the caller).
+    pub decided_by: Option<String>,
+    /// Room message id the decision came from.
+    pub source_message: Option<i64>,
+    /// Id of an accepted decision this one replaces.
+    pub supersedes: Option<i64>,
+}
+
+/// Where the repository keeps a decision's file.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DecisionFilePath {
+    pub path: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DecisionList {
+    pub project: String,
+    pub decisions: Vec<DecisionView>,
 }

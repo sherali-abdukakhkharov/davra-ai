@@ -242,6 +242,35 @@ out=$(as "$T_LAI" post "chat 3" --project atlas 2>&1 || true)
 has "$out" "posted #" "handoff cards don't count toward the loop guard"
 ok "loop guard counts chat, not handoff cards"
 
+
+echo "== decisions"
+out=$(mcp "$T_LAI" '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"decision_record","arguments":{"title":"Cursor paging for contacts","ticket":"ATL-050","decision":"Contacts are paged with a cursor (nextCursor).","why":"Offsets skip rows while contacts are added.","instead":"Offset and limit"}}}')
+has "$out" "decided by @frontend" "an agent's decision defaults to its owner"
+D1=$(grep -o 'Decision D[0-9]*' <<<"$out" | head -1 | tr -dc 0-9)
+F1=$(grep -o 'docs/memory/decisions/[^ ]*-cursor-paging-for-contacts-ATL-050\.md' <<<"$out" | head -1)
+[ -n "$D1" ] && [ -n "$F1" ] || fail "decision_record: no id or file in: $out"
+grep -q "^decided_by: frontend" "$REPO/$F1" || fail "decision file lacks decided_by"
+grep -q "^Instead of: Offset and limit" "$REPO/$F1" || fail "decision file lacks Instead of"
+out=$(mcp "$T_LAI" '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"decision_record","arguments":{"decision":"x happens","why":"y","decided_by":"backend-ai"}}}')
+has "$out" "is not a person in this project" "agents cannot be the decider"
+out=$(mcp "$T_GAI" "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"decision_record\",\"arguments\":{\"title\":\"Keyset paging for contacts\",\"ticket\":\"ATL-050\",\"decision\":\"Keyset paging on (created_at, id).\",\"why\":\"A cursor alone breaks on equal timestamps.\",\"supersedes\":$D1}}}")
+has "$out" "now says superseded_by" "the replaced decision's file is updated"
+D2=$(grep -o 'Decision D[0-9]*' <<<"$out" | head -1 | tr -dc 0-9)
+grep -q "^status: superseded" "$REPO/$F1" || fail "old decision file not superseded"
+grep -q "^superseded_by: $D2" "$REPO/$F1" || fail "old decision file lacks superseded_by"
+out=$(cd "$REPO" && DAVRA_TOKEN="$T_GAI" "$CLI" brief)
+has "$out" "## Recent decisions" "brief lists decisions"
+has "$out" "D$D2 ATL-050" "brief shows the new decision"
+hasnt "$out" "D$D1 ATL-050" "brief hides the replaced decision"
+out=$(as "$T_GAI" decisions --all --project atlas)
+has "$out" "[superseded by D$D2]" "the log keeps the replaced decision"
+out=$(as "$T_GAI" decisions "$D2")
+has "$out" "Replaces D$D1" "full view links the old decision"
+out=$(as "$T_GAI" inbox --project atlas)
+hasnt "$out" "Decision D$D2" "decisions are not inbox items"
+code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $T_GUEST" -H 'content-type: application/json' -d '{"decision":"a","why":"b"}' "$DAVRA_HUB/api/v1/projects/atlas/decisions")
+[ "$code" = 403 ] || fail "viewer recorded a decision -> $code"
+ok "decision_record writes the file and the hub record, supersedes in place, shows in the brief and the log"
 echo "== MCP over stdio"
 mcp_out=$( (
   printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"e2e","version":"0"}}}'
@@ -252,13 +281,13 @@ mcp_out=$( (
   printf '%s\n' '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"team_brief","arguments":{"project":"atlas"}}}'
   sleep 2
 ) | DAVRA_TOKEN="$T_GAI" timeout 10 "$CLI" mcp 2>"$WORK/mcp.err" || true)
-for tool in projects team_brief inbox ack post history_search get_message handoffs get_handoff handoff_create handoff_done ask_owner; do
+for tool in projects team_brief inbox ack post history_search get_message handoffs get_handoff handoff_create handoff_done ask_owner decision_record decisions; do
   has "$mcp_out" "\"name\":\"$tool\"" "tools/list has $tool"
 done
 has "$mcp_out" "ATL-032" "tools/call history_search"
 has "$mcp_out" "you are @backend-ai" "tools/call team_brief"
 has "$mcp_out" "Davra connects you" "server instructions"
-ok "initialize, tools/list (12 tools), tools/call"
+ok "initialize, tools/list (14 tools), tools/call"
 [[ "$mcp_out" != *'claude/channel'* ]] || fail "plain davra mcp must not claim to be a channel"
 
 echo "== live channel"

@@ -5,6 +5,7 @@
 pub mod client;
 pub mod config;
 pub mod connect;
+pub mod decisions;
 pub mod handoffs;
 pub mod install;
 pub mod mcp;

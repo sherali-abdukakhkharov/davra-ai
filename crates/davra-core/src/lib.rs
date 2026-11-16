@@ -5,6 +5,7 @@
 //! secret redaction.
 
 pub mod api;
+pub mod decision_file;
 pub mod format;
 pub mod handoff_file;
 pub mod mentions;

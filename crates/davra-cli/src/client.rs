@@ -187,6 +187,43 @@ impl Client {
         .await
     }
 
+    pub async fn decisions(
+        &self,
+        project: &str,
+        all: bool,
+        ticket: Option<&str>,
+    ) -> Result<DecisionList> {
+        let mut q = vec![("status", if all { "all" } else { "accepted" }.to_string())];
+        if let Some(t) = ticket {
+            q.push(("ticket", t.to_string()));
+        }
+        self.get(&format!("/api/v1/projects/{}/decisions", enc(project)), &q)
+            .await
+    }
+
+    pub async fn decision(&self, id: i64) -> Result<DecisionView> {
+        self.get(&format!("/api/v1/decisions/{id}"), &[]).await
+    }
+
+    pub async fn decision_create(
+        &self,
+        project: &str,
+        req: &DecisionCreate,
+    ) -> Result<DecisionView> {
+        self.post(&format!("/api/v1/projects/{}/decisions", enc(project)), req)
+            .await
+    }
+
+    pub async fn decision_file(&self, id: i64, path: &str) -> Result<DecisionView> {
+        self.post(
+            &format!("/api/v1/decisions/{id}/file"),
+            &DecisionFilePath {
+                path: path.to_string(),
+            },
+        )
+        .await
+    }
+
     /// Returns (question id, owner handle, shown with buttons).
     pub async fn ask_owner(
         &self,

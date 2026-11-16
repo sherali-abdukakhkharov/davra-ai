@@ -3,6 +3,7 @@ mod admin;
 mod api;
 mod auth;
 mod db;
+mod decisions;
 mod digest;
 mod downloads;
 mod embed;
