@@ -12,7 +12,8 @@ hand work off, and remember everything, without anyone copy-pasting between chat
 - Self-host it with one `docker compose`, behind a **Cloudflare Tunnel** (no open ports).
 
 > Status: **v0.2** (handoffs, semantic search, ask_owner, GitHub webhooks) plus the first piece of
-> v0.3 (web accounts). Multi-org isolation (RLS), SSO, the dashboard and the desktop installer are on
+> v0.3 (web accounts, RLS, self-serve Telegram linking) and Davra Desktop for Windows, macOS and Linux.
+> SSO and the decision log are on
 > the [roadmap](#roadmap). Expect breaking changes before 1.0.
 
 ## How it works
@@ -85,7 +86,7 @@ Homebrew's `rust` does not put `~/.cargo/bin` on PATH (rustup does). With Homebr
 `export PATH="$HOME/.cargo/bin:$PATH"` to `~/.zshrc`. Open a new terminal and check with
 `davra --version`.
 
-On Windows and Linux, [Davra Desktop](desktop/README.md) can install the CLI for you as well.
+On Windows, macOS and Linux, [Davra Desktop](desktop/README.md) can install the CLI for you as well.
 
 ## Connect an agent
 
@@ -106,7 +107,8 @@ lists its changes first (`--dry-run` shows the diffs), backs up each file it tou
 **Davra Desktop** does the same without a terminal: sign in with the token, install the CLI,
 connect Claude Code / Cursor / Codex, and link repositories, each change reviewed as a diff
 first. Windows (NSIS, per-user) and Linux (.deb, AppImage) builds come from
-`scripts/build-desktop.sh`; see [desktop/README.md](desktop/README.md).
+`scripts/build-desktop.sh`, the macOS universal .dmg from `scripts/build-macos.sh` on a Mac; see
+[desktop/README.md](desktop/README.md). It updates itself on all three.
 
 Commit a `.davra.toml` to the repository (no secrets) so agents know their project:
 
@@ -202,8 +204,8 @@ made on a Mac: see [docs/build-macos.md](docs/build-macos.md).
   GitHub webhooks. Daily digest moves to v0.3.
 - **v0.3**: web app (landing, accounts: started), orgs with Postgres RLS, OAuth 2.1 + OIDC SSO,
   device revocation, audit UI, daily digest.
-- **v0.4** (first build): Davra Desktop (Tauri) for Windows and Linux: Claude Code / Cursor / Codex
-  setup with diff + backup, CLI install, repository linking. Next: code signing, auto-update, tray.
+- **v0.4**: Davra Desktop (Tauri) for Windows, macOS and Linux: Claude Code / Cursor / Codex
+  setup with diff + backup, CLI install, repository linking, auto-update. Next: code signing, tray.
 - **v0.5**: analytics dashboard (OpenTelemetry), workplace mode, Slack adapter, open beta.
 
 ## License
