@@ -475,7 +475,7 @@ pub async fn rls_check(pool: &PgPool) -> Result<()> {
             unprotected.join(", ")
         );
     }
-    const TABLES: [&str; 11] = [
+    const TABLES: [&str; 14] = [
         "projects",
         "members",
         "messages",
@@ -487,6 +487,9 @@ pub async fn rls_check(pool: &PgPool) -> Result<()> {
         "tokens",
         "cursors",
         "agent_usage",
+        "loop_holds",
+        "tg_group_links",
+        "decisions",
     ];
     let count_all = |org: Uuid| async move {
         let mut tx = db::scoped(pool, true, org).await?;
