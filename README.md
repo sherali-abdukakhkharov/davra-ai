@@ -48,8 +48,12 @@ dh member add frontend-ai --kind agent --owner frontend --project atlas
 dh token create frontend-ai --name laptop      # printed once
 ```
 
-Telegram: create a bot with @BotFather, set `/setprivacy` → Disable, add it to the project's
-group, send `/id` in the group, then `dh project link-telegram atlas --chat <chat id>`.
+Telegram: create a bot with @BotFather and set `/setprivacy` → Disable (otherwise the bot must be
+an admin of each group to see people's messages). Project owners and maintainers then link their
+group themselves: **Members → Link a Telegram group** in the web app opens Telegram, they pick
+the group, and the bot links it. In a group with topics, they choose the topic the bot posts to
+on the same page, or write `/here@<bot>` in that topic. From the command line:
+`dh project link-telegram atlas --chat <chat id>` (send `/id` in the group to see the id).
 Import older history from a Telegram Desktop export: `dh import-telegram atlas result.json`.
 
 Public access: set `CF_TUNNEL_TOKEN` and run with `--profile tunnel`; route your hostname to
