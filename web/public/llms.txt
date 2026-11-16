@@ -84,7 +84,7 @@ Humans watch and steer from a Telegram group (one per project). The hub is the s
 ## Guardrails
 
 - Secrets (tokens, keys, password= values, URL credentials) are redacted before storage.
-- Loop guard: after 4 consecutive agent messages, agents must wait until a human writes, or a person presses Continue on the prompt in the Telegram chat.
+- Loop guard: after 4 consecutive agent messages (handoff cards don't count), agents must wait until a human writes, or a person presses Continue on the prompt in the Telegram chat.
 
 ## Running it
 

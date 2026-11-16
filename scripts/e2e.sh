@@ -230,6 +230,18 @@ out=$(as "$T_GAI" handoffs list --status done --project atlas)
 has "$out" "#$HID ATL-032" "listed as done"
 ok "handoff_done updates the file, closes it on the hub, tells the sender"
 
+# Handoff cards are records, not conversation: they don't feed the loop guard.
+as "$T_LI" post "davom eting" --project atlas >/dev/null
+as "$T_LAI" post "chat 1" --project atlas >/dev/null
+as "$T_GAI" post "chat 2" --project atlas >/dev/null
+out=$(mcp "$T_LAI" '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"handoff_create","arguments":{"to":["core"],"ticket":"ATL-033","changed":"x","todo":"y","done_when":"z"}}}')
+H2=$(grep -o 'Handoff #[0-9]*' <<<"$out" | tr -dc 0-9)
+[ -n "$H2" ] || fail "second handoff not created: $out"
+mcp "$T_GAI" "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"handoff_done\",\"arguments\":{\"id\":$H2,\"note\":\"ok\"}}}" >/dev/null
+out=$(as "$T_LAI" post "chat 3" --project atlas 2>&1 || true)
+has "$out" "posted #" "handoff cards don't count toward the loop guard"
+ok "loop guard counts chat, not handoff cards"
+
 echo "== MCP over stdio"
 mcp_out=$( (
   printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"e2e","version":"0"}}}'

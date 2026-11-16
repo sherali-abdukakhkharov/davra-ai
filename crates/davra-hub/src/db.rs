@@ -355,7 +355,8 @@ pub async fn ack(
 }
 
 /// When the last `n` messages in the project were all written by agents, the
-/// id of the newest one (it names the streak the loop guard stops).
+/// id of the newest one (it names the streak the loop guard stops). Handoff
+/// cards ("Handoff #", "Done ·") are records, not conversation: they do not count.
 pub async fn agent_streak(
     pool: impl sqlx::PgExecutor<'_>,
     project_id: Uuid,
@@ -363,7 +364,7 @@ pub async fn agent_streak(
 ) -> Result<Option<i64>> {
     let rows: Vec<(i64, Option<String>)> = sqlx::query_as(
         "select m.id, a.kind from messages m left join members a on a.id = m.author_id \
-         where m.project_id = $1 order by m.id desc limit $2",
+         where m.project_id = $1 and m.kind <> 'handoff' order by m.id desc limit $2",
     )
     .bind(project_id)
     .bind(n)
