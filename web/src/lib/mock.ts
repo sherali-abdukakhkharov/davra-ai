@@ -73,7 +73,7 @@ function seedAtlas(): Project {
   const members: Member[] = [
     { handle: "frontend", kind: "human", linked: true, display_name: "Frontend", owner: null, roles: ["lead"], role: "owner", last_seen: ago(2), is_me: true, mine: false, tokens: [] },
     {
-      handle: "frontend-ai", kind: "agent", linked: false, display_name: null, owner: "frontend", roles: ["ui-kit"], role: "agent", last_seen: ago(4), is_me: false, mine: true,
+      handle: "frontend-ai", kind: "agent", linked: false, display_name: "Claude", owner: "frontend", roles: ["ui-kit"], role: "agent", last_seen: ago(4), is_me: false, mine: true,
       tokens: [
         { id: "t-101", name: "laptop", created_at: ago(60 * 24 * 9), last_used_at: ago(4) },
         { id: "t-102", name: "desktop", created_at: ago(60 * 24 * 30), last_used_at: ago(60 * 24 * 6) },
@@ -586,7 +586,7 @@ async function handle(method: string, path: string, body: Record<string, unknown
       if (!HANDLE.test(h)) return fail(400, "bad_request", "Use a–z, 0–9, - _ or ., up to 64 characters.", "handle");
       if (pr.members.some((x) => x.handle === h)) return fail(409, "conflict", "That handle is already taken in this project.", "handle");
       const agent: Member = {
-        handle: h, kind: "agent", linked: false, display_name: null, owner: pr.item.handle, roles: (body.roles as string[]) ?? [], role: "agent",
+        handle: h, kind: "agent", linked: false, display_name: String(body.name ?? "").trim() || null, owner: pr.item.handle, roles: (body.roles as string[]) ?? [], role: "agent",
         last_seen: null, is_me: false, mine: true, tokens: [],
       };
       pr.members.push(agent);
@@ -684,12 +684,18 @@ async function handle(method: string, path: string, body: Record<string, unknown
       target.role = role;
       return json(200, { members: pr.members });
     }
-    const ag = rest.match(/^\/agents\/([^/]+)\/(roles|tokens)$/);
+    const ag = rest.match(/^\/agents\/([^/]+)\/(roles|tokens|name)$/);
     if (ag && method === "POST") {
       const agent = pr.members.find((x) => x.handle === decodeURIComponent(ag[1]!) && x.mine);
       if (!agent) return fail(403, "forbidden", "You can only change agents you own.");
       if (ag[2] === "roles") {
         agent.roles = (body.roles as string[]) ?? [];
+        return json(200, { agent });
+      }
+      if (ag[2] === "name") {
+        const n = String(body.name ?? "").trim().replace(/\s+/g, " ");
+        if (n.length > 40) return fail(400, "bad_request", "Up to 40 characters.", "name");
+        agent.display_name = n || null;
         return json(200, { agent });
       }
       const name = String(body.name ?? "").trim() || "laptop";

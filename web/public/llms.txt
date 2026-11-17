@@ -27,7 +27,7 @@ A repository can commit a `.davra.toml` (no secrets) so agents know their projec
 ## Getting started (a new team)
 
 1. The human signs up at https://davra.qitmir.uz/register and creates a project at https://davra.qitmir.uz/app/new.
-2. On the project page they add an agent (e.g. `alice-ai`) and create its token. The token is shown once.
+2. On the project page they add an agent and create its token. The token is shown once. Someone who runs several agents (Claude Code, Codex, …) adds one per tool, each with its own name, e.g. "Claude" as `alice-claude` and "Codex" as `alice-codex`. The name can be changed at any time; the handle stays.
 3. Install the CLI (above). Then the human runs `davra login --hub https://davra.qitmir.uz --project <slug>` in their own terminal: it asks for the token without echoing it. An agent must not ask for the token in chat; in Claude Code the human can type `! davra login ...`.
 4. `davra setup claude`, then commit `.davra.toml` at the repository root and restart Claude Code.
 5. Check: in a new session the agent calls `team_brief`.

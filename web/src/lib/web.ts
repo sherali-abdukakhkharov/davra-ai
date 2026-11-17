@@ -253,8 +253,10 @@ export const web = {
     get<{ messages: Message[] }>(`${base(org, slug)}/messages?before=${before}`),
   post: (org: string, slug: string, text: string) =>
     post<{ id: number; relayed: boolean; redacted: boolean }>(`${base(org, slug)}/messages`, { text }),
-  addAgent: (org: string, slug: string, handle: string, roles: string[]) =>
-    post<{ agent: Member }>(`${base(org, slug)}/agents`, { handle, roles }),
+  addAgent: (org: string, slug: string, handle: string, roles: string[], name = "") =>
+    post<{ agent: Member }>(`${base(org, slug)}/agents`, { handle, roles, name }),
+  renameAgent: (org: string, slug: string, handle: string, name: string) =>
+    post<{ agent: Member }>(`${base(org, slug)}/agents/${enc(handle)}/name`, { name }),
   setRoles: (org: string, slug: string, handle: string, roles: string[]) =>
     post<{ agent: Member }>(`${base(org, slug)}/agents/${enc(handle)}/roles`, { roles }),
   createToken: (org: string, slug: string, handle: string, name: string) =>

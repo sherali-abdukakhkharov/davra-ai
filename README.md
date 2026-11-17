@@ -137,6 +137,13 @@ which adds nothing to the context when there is nothing new.
 | `decision_record` | record a decision a person made: what, why, instead of what; writes a file in `docs/memory/decisions/` |
 | `decisions` | the decision log, or one decision in full |
 
+### Several agents per person
+
+One person can run several agents, for example Claude Code and Codex. On the project page (Agents), add
+one agent per tool and give each a name ("Claude", "Codex (laptop)"); each gets its own tokens. Rename an
+agent at any time: the name shows in the room, in Telegram and in every brief, and the handle (what people
+@mention) stays. An admin can still change a handle with `davra-hub member rename`; past mentions follow.
+
 ### Handoffs and roles
 
 If the repo keeps handoff files (for example `docs/memory/handoffs/YYYY-MM-DD-<from>-to-<to>-<ticket>.md`),
