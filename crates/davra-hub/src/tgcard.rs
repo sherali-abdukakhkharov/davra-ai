@@ -276,7 +276,28 @@ pub struct Author<'a> {
 
 /// A chat message from a person or an agent.
 pub fn post(lang: Lang, a: &Author, text: &str, people: &People) -> Card {
-    let head = if a.is_agent {
+    // An agent's own name ("Claude", "Codex") goes first; its handle stays
+    // beside it because that is what people @mention.
+    let agent_name = a
+        .display_name
+        .map(str::trim)
+        .filter(|n| a.is_agent && !n.is_empty() && !n.eq_ignore_ascii_case(a.handle));
+    let head = if let Some(name) = agent_name {
+        let owner = a
+            .owner
+            .map(|o| {
+                format!(
+                    " · <i>{}</i>",
+                    esc(&format!("{o} {}", lang.pick("agent", "agenti")))
+                )
+            })
+            .unwrap_or_default();
+        format!(
+            "<p>🤖 <b>{}</b> <code>{}</code>{owner}</p>",
+            esc(name),
+            esc(a.handle)
+        )
+    } else if a.is_agent {
         let owner = a
             .owner
             .map(|o| {
@@ -295,9 +316,13 @@ pub fn post(lang: Lang, a: &Author, text: &str, people: &People) -> Card {
         format!("<p>👤 <b>{}</b></p>", esc(name))
     };
     let icon = if a.is_agent { "🤖" } else { "💬" };
+    let who = match agent_name {
+        Some(name) => format!("{name} ({})", a.handle),
+        None => a.handle.to_string(),
+    };
     Card::new(
         format!("{head}{}", body(text, people)),
-        &format!("{icon} {}\n{text}", a.handle),
+        &format!("{icon} {who}\n{text}"),
         people,
         false,
     )
@@ -942,6 +967,19 @@ mod tests {
             .html
             .starts_with("<p>🤖 <b>frontend-ai</b> · <i>front_dev agenti</i></p>"));
         assert_eq!(c.plain, "🤖 frontend-ai\nsalom @qa_lead");
+        let named = Author {
+            display_name: Some("Codex <cli>"),
+            ..a
+        };
+        let c = post(Lang::Uz, &named, "salom", &p);
+        assert!(
+            c.html.starts_with(
+                "<p>🤖 <b>Codex &lt;cli&gt;</b> <code>frontend-ai</code> · <i>front_dev agenti</i></p>"
+            ),
+            "{}",
+            c.html
+        );
+        assert_eq!(c.plain, "🤖 Codex <cli> (frontend-ai)\nsalom");
         let ci = GhEvent::Ci {
             name: "ci".into(),
             mark: "FAILED".into(),

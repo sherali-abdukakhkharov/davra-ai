@@ -93,6 +93,10 @@ pub fn router(state: AppState) -> Router {
             post(crate::webapp::set_roles),
         )
         .route(
+            "/api/v1/web/projects/{org}/{slug}/agents/{handle}/name",
+            post(crate::webapp::set_name),
+        )
+        .route(
             "/api/v1/web/projects/{org}/{slug}/agents/{handle}/tokens",
             post(crate::webapp::create_token),
         )

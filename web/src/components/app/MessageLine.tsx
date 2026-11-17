@@ -8,6 +8,8 @@ type Props = {
   id: number;
   createdAt: string;
   author: string;
+  /** The author's display name, shown beside the handle when it says more. */
+  name?: string | null;
   trust: Trust;
   body: string;
   kind?: MessageKind;
@@ -20,7 +22,7 @@ type Props = {
 };
 
 /** One message in the room, in the line shape davra mcp prints: `#id mm-dd hh:mm author [trust]: text`. */
-export function MessageLine({ id, createdAt, author, trust, body, kind, topic, replyTo, addressed, highlight, clamp }: Props) {
+export function MessageLine({ id, createdAt, author, name, trust, body, kind, topic, replyTo, addressed, highlight, clamp }: Props) {
   const f = useFormat();
   return (
     <div
@@ -39,7 +41,9 @@ export function MessageLine({ id, createdAt, author, trust, body, kind, topic, r
       <time dateTime={createdAt} title={f.full(createdAt)} className="tnum text-fg-muted">
         {f.line(createdAt)}
       </time>{" "}
-      <span className="font-medium text-fg">{author}</span> <TrustTag trust={trust} tone="ground" />
+      <span className="font-medium text-fg">{author}</span>
+      {name && name.toLowerCase() !== author.toLowerCase() ? <span className="font-sans text-fg-muted"> · {name}</span> : null}{" "}
+      <TrustTag trust={trust} tone="ground" />
       {kind === "decision" ? (
         <span className="text-fg-muted">
           {" "}

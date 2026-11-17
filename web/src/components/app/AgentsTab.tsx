@@ -13,6 +13,17 @@ import { Seat } from "./MembersTab";
 import { Notice } from "./States";
 
 const HANDLE = /^[a-z0-9._-]{1,64}$/;
+const MAX_NAME = 40;
+const cleanName = (s: string) => s.trim().replace(/\s+/g, " ");
+/** "Codex (laptop)" → "codex-laptop"; Uzbek letters lose their marks (ş → s). */
+const slugOf = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^[-._]+|[-._]+$/g, "");
+const suggestHandle = (owner: string, name: string) => `${owner}-${slugOf(name) || "ai"}`.slice(0, 64);
 const parseRoles = (s: string) => [...new Set(s.split(/[,\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean))];
 
 type Props = { project: ProjectRef; members: Member[]; onChanged: () => void; onMember: (m: Member) => void };
@@ -74,7 +85,8 @@ export function AgentsTab({ project, members, onChanged, onMember }: Props) {
             {others.map((m) => (
               <li key={m.handle} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-3">
                 <Seat kind="agent" />
-                <span translate="no" className="font-mono text-[0.85rem] font-medium">
+                {m.display_name ? <span className="font-medium">{m.display_name}</span> : null}
+                <span translate="no" className={cn("font-mono text-[0.85rem]", m.display_name ? "text-fg-muted" : "font-medium")}>
                   @{m.handle}
                 </span>
                 <RoleChips roles={m.roles} />
@@ -105,15 +117,25 @@ function RoleChips({ roles }: { roles: string[] }) {
 function AddAgent({ project, onAdded, onCancel }: { project: ProjectRef; onAdded: (m: Member) => void; onCancel?: () => void }) {
   const { t } = usePrefs();
   const a = t.app.agents;
-  const [handle, setHandle] = useState(`${project.handle}-ai`.slice(0, 64));
+  const [name, setName] = useState("");
+  const [handle, setHandle] = useState(suggestHandle(project.handle, ""));
+  // The handle follows the name until the person types a handle of their own.
+  const [handleTouched, setHandleTouched] = useState(false);
   const [roles, setRoles] = useState("");
-  const [errors, setErrors] = useState<{ handle?: string; roles?: string; form?: string }>({});
+  const [errors, setErrors] = useState<{ name?: string; handle?: string; roles?: string; form?: string }>({});
   const [pending, setPending] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
   const handleRef = useRef<HTMLInputElement>(null);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (pending) return;
+    const n = cleanName(name);
+    if (n.length > MAX_NAME) {
+      setErrors({ name: a.nameTooLong });
+      nameRef.current?.focus();
+      return;
+    }
     const h = handle.trim();
     if (!HANDLE.test(h)) {
       setErrors({ handle: t.app.create.invalid });
@@ -123,14 +145,15 @@ function AddAgent({ project, onAdded, onCancel }: { project: ProjectRef; onAdded
     setPending(true);
     setErrors({});
     try {
-      const { agent } = await web.addAgent(project.org, project.slug, h, parseRoles(roles));
+      const { agent } = await web.addAgent(project.org, project.slug, h, parseRoles(roles), n);
       onAdded(agent);
     } catch (err) {
       setPending(false);
       const text = webErrorText(err, t.app.errors);
       const field = err instanceof ApiError ? err.field : null;
-      if (field === "handle" || field === "roles") setErrors({ [field]: text });
+      if (field === "name" || field === "handle" || field === "roles") setErrors({ [field]: text });
       else setErrors({ form: text });
+      if (field === "name") nameRef.current?.focus();
       if (field === "handle") handleRef.current?.focus();
     }
   };
@@ -139,8 +162,38 @@ function AddAgent({ project, onAdded, onCancel }: { project: ProjectRef; onAdded
     <form noValidate onSubmit={submit} aria-busy={pending} className="rounded-lg border border-rule-strong bg-bg-raised p-5 sm:p-6">
       <h3 className="font-semibold">{a.add}</h3>
       <div className="mt-4 grid gap-5 *:min-w-0 md:grid-cols-2">
-        <Field ref={handleRef} label={a.handle} name="agent-handle" autoComplete="off" autoCapitalize="none" value={handle} onChange={(e) => setHandle(e.target.value)} error={errors.handle} hint={errors.handle ? null : a.handleHint} disabled={pending} />
-        <Field label={a.roles} name="agent-roles" autoComplete="off" autoCapitalize="none" placeholder="ui-kit, core…" value={roles} onChange={(e) => setRoles(e.target.value)} error={errors.roles} hint={errors.roles ? null : a.rolesHint} disabled={pending} />
+        <Field
+          ref={nameRef}
+          label={a.name}
+          name="agent-name"
+          autoComplete="off"
+          placeholder={a.namePlaceholder}
+          maxLength={MAX_NAME + 20}
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value);
+            if (!handleTouched) setHandle(suggestHandle(project.handle, e.target.value));
+          }}
+          error={errors.name}
+          hint={errors.name ? null : a.nameHint}
+          disabled={pending}
+        />
+        <Field
+          ref={handleRef}
+          label={a.handle}
+          name="agent-handle"
+          autoComplete="off"
+          autoCapitalize="none"
+          value={handle}
+          onChange={(e) => {
+            setHandle(e.target.value);
+            setHandleTouched(true);
+          }}
+          error={errors.handle}
+          hint={errors.handle ? null : a.handleHint}
+          disabled={pending}
+        />
+        <Field className="md:col-span-2" label={a.roles} name="agent-roles" autoComplete="off" autoCapitalize="none" placeholder="ui-kit, core…" value={roles} onChange={(e) => setRoles(e.target.value)} error={errors.roles} hint={errors.roles ? null : a.rolesHint} disabled={pending} />
       </div>
       {errors.form ? (
         <p role="alert" className="mt-4 text-sm text-danger">
@@ -169,6 +222,31 @@ function AgentCard({ project, agent, openConnect, onChanged, onMember }: { proje
   const [savingRoles, setSavingRoles] = useState(false);
   const [rolesError, setRolesError] = useState<string | null>(null);
   const [connect, setConnect] = useState(openConnect);
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState(agent.display_name ?? "");
+  const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
+
+  const saveName = async (e: FormEvent) => {
+    e.preventDefault();
+    if (savingName) return;
+    const n = cleanName(nameDraft);
+    if (n.length > MAX_NAME) {
+      setNameError(a.nameTooLong);
+      return;
+    }
+    setSavingName(true);
+    setNameError(null);
+    try {
+      const { agent: next } = await web.renameAgent(project.org, project.slug, agent.handle, n);
+      onMember(next);
+      setRenaming(false);
+    } catch (err) {
+      setNameError(webErrorText(err, t.app.errors));
+    } finally {
+      setSavingName(false);
+    }
+  };
 
   const saveRoles = async (e: FormEvent) => {
     e.preventDefault();
@@ -189,17 +267,59 @@ function AgentCard({ project, agent, openConnect, onChanged, onMember }: { proje
     <article className="overflow-hidden rounded-lg border border-rule bg-bg-raised" aria-labelledby={`agent-${agent.handle}`}>
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-4">
         <Seat kind="agent" />
-        <h3 id={`agent-${agent.handle}`} translate="no" className="font-mono text-[0.92rem] font-semibold">
-          @{agent.handle}
+        <h3 id={`agent-${agent.handle}`} className="flex flex-wrap items-baseline gap-x-2">
+          {agent.display_name ? <span className="font-semibold">{agent.display_name}</span> : null}
+          <span translate="no" className={cn("font-mono text-[0.92rem]", agent.display_name ? "text-fg-muted" : "font-semibold")}>
+            @{agent.handle}
+          </span>
         </h3>
         {!editing ? <RoleChips roles={agent.roles} /> : null}
-        {!editing ? (
-          <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setEditing(true)}>
-            <Pencil aria-hidden="true" />
-            {a.editRoles}
-          </Button>
+        {!editing && !renaming ? (
+          <span className="ml-auto flex flex-wrap gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setNameDraft(agent.display_name ?? "");
+                setNameError(null);
+                setRenaming(true);
+              }}
+            >
+              <Pencil aria-hidden="true" />
+              {a.rename}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+              <Pencil aria-hidden="true" />
+              {a.editRoles}
+            </Button>
+          </span>
         ) : null}
       </header>
+      {renaming ? (
+        <form noValidate onSubmit={saveName} className="flex flex-col gap-3 border-t border-rule px-5 py-4">
+          <Field
+            autoFocus
+            label={a.name}
+            name={`name-${agent.handle}`}
+            autoComplete="off"
+            placeholder={a.namePlaceholder}
+            maxLength={MAX_NAME + 20}
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            hint={nameError ? null : a.handleFixed}
+            error={nameError}
+            disabled={savingName}
+          />
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" disabled={savingName}>
+              <SubmitLabel pending={savingName} idle={a.saveName} busy={a.saving} />
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setRenaming(false)} disabled={savingName}>
+              {a.cancel}
+            </Button>
+          </div>
+        </form>
+      ) : null}
       {editing ? (
         <form onSubmit={saveRoles} className="flex flex-col gap-3 border-t border-rule px-5 py-4">
           <Field

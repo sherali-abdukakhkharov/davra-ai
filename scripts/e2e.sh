@@ -425,12 +425,22 @@ has "$body" '"handle":"design-ai"' "create agent"
 has "$body" '"mine":true' "agent is mine"
 body=$(WP /api/v1/web/projects/design-lab/crm/agents '{"handle":"design-ai"}')
 has "$body" '"field":"handle"' "duplicate agent handle"
+body=$(WP /api/v1/web/projects/design-lab/crm/agents '{"handle":"design-codex","name":"  Codex   (laptop) "}')
+has "$body" '"display_name":"Codex (laptop)"' "a second agent with its own name"
+body=$(WP /api/v1/web/projects/design-lab/crm/agents '{"handle":"design-x","name":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}')
+has "$body" '"field":"name"' "agent names are 40 characters at most"
+body=$(WP /api/v1/web/projects/design-lab/crm/agents/design-ai/name '{"name":"Claude"}')
+has "$body" '"display_name":"Claude"' "rename an agent"
+has "$body" '"handle":"design-ai"' "the handle stays"
 body=$(WP /api/v1/web/projects/design-lab/crm/agents/design-ai/tokens '{"name":"laptop"}')
 has "$body" '"davra login --hub' "token with connect commands"
 TOK=$(grep -o '"token":"dvr_[a-f0-9]*"' <<<"$body" | cut -d'"' -f4)
 TID=$(grep -o '"id":"[0-9a-f-]*"' <<<"$body" | head -1 | cut -d'"' -f4)
 out=$(DAVRA_TOKEN="$TOK" "$CLI" inbox --project crm)
 has "$out" "design [owner]" "the new agent reads its owner's web message as [owner]"
+out=$(DAVRA_TOKEN="$TOK" "$CLI" brief --project crm)
+has "$out" 'you are @design-ai "Claude"' "the agent knows its name"
+has "$out" '@design-codex "Codex (laptop)" (agent of @design)' "brief names the other agents"
 body=$(W "$DAVRA_HUB/api/v1/web/projects/design-lab/crm")
 has "$body" '"messages_7d":1' "stats"
 has "$body" '"name":"laptop"' "my agent's tokens listed"
@@ -445,7 +455,7 @@ out=$(DAVRA_TOKEN="$TOK" "$CLI" whoami 2>&1 || true)
 has "$out" "invalid token" "revoked token stops working"
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$WJ" "${J[@]}" -d '{"text":"no csrf"}' "$DAVRA_HUB/api/v1/web/projects/design-lab/crm/messages")
 [ "$code" = 403 ] || fail "web POST without X-Davra -> $code"
-ok "web app: create project, post, agents with roles, one-time token works then revokes, others' projects hidden, CSRF enforced"
+ok "web app: create project, post, agents with roles and names, one-time token works then revokes, others' projects hidden, CSRF enforced"
 
 body=$(W "$DAVRA_HUB/api/v1/web/projects/design-lab/crm/telegram")
 has "$body" '"bot":null' "no bot on this hub"

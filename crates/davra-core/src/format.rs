@@ -4,8 +4,8 @@
 //! bodies flattened and cut, and a hard character budget per output.
 
 use crate::api::{
-    Brief, DecisionList, DecisionView, HandoffList, HandoffView, Inbox, MessageContext,
-    MessageView, SearchResults, Trust,
+    Brief, DecisionList, DecisionView, HandoffList, HandoffView, Inbox, MemberRef,
+    MessageContext, MessageView, SearchResults, Trust,
 };
 
 /// Rough budget: ~4 characters per token.
@@ -68,19 +68,32 @@ fn push_within(out: &mut String, lines: &[String], budget: usize) -> usize {
     dropped
 }
 
+/// ` "Claude"` after a handle when the member has a display name.
+fn quoted_name(m: &MemberRef) -> String {
+    match m.display_name.as_deref().map(str::trim) {
+        Some(n) if !n.is_empty() && !n.eq_ignore_ascii_case(&m.handle) => {
+            format!(" \"{}\"", n.replace('"', "'"))
+        }
+        _ => String::new(),
+    }
+}
+
 pub fn brief_text(b: &Brief) -> String {
     let mut out = String::new();
     out.push_str(&format!(
-        "# Davra · project {} · you are @{}\n{}\n\n",
-        b.project.slug, b.me.handle, PREAMBLE
+        "# Davra · project {} · you are @{}{}\n{}\n\n",
+        b.project.slug,
+        b.me.handle,
+        quoted_name(&b.me),
+        PREAMBLE
     ));
 
     let members: Vec<String> = b
         .members
         .iter()
         .map(|m| match (&m.owner, m.kind) {
-            (Some(o), _) => format!("@{} (agent of @{})", m.handle, o),
-            (None, k) => format!("@{} ({})", m.handle, k.as_str()),
+            (Some(o), _) => format!("@{}{} (agent of @{})", m.handle, quoted_name(m), o),
+            (None, k) => format!("@{}{} ({})", m.handle, quoted_name(m), k.as_str()),
         })
         .collect();
     out.push_str(&format!("Members: {}\n", members.join(", ")));
@@ -433,6 +446,49 @@ mod tests {
         let t = brief_text(&b);
         assert!(t.len() <= BRIEF_BUDGET_CHARS + 200, "{}", t.len());
         assert!(t.contains("#200 "), "newest message must be kept");
+    }
+
+    #[test]
+    fn brief_names_members() {
+        let agent = |handle: &str, name: Option<&str>| MemberRef {
+            handle: handle.into(),
+            kind: MemberKind::Agent,
+            display_name: name.map(Into::into),
+            owner: Some("ali".into()),
+            roles: vec![],
+        };
+        let b = Brief {
+            project: ProjectRef {
+                slug: "atlas".into(),
+                name: None,
+                role: "agent".into(),
+            },
+            me: agent("ali-claude", Some("Claude")),
+            members: vec![
+                MemberRef {
+                    handle: "ali".into(),
+                    kind: MemberKind::Human,
+                    display_name: Some("Ali".into()),
+                    owner: None,
+                    roles: vec![],
+                },
+                agent("ali-claude", Some("Claude")),
+                agent("ali-codex", Some("Codex \"cli\"")),
+                agent("ali-ai", None),
+            ],
+            inbox: vec![],
+            unread: 0,
+            recent: vec![],
+            total_messages: 0,
+            handoffs: vec![],
+            decisions: vec![],
+        };
+        let t = brief_text(&b);
+        assert!(t.starts_with("# Davra · project atlas · you are @ali-claude \"Claude\"\n"), "{t}");
+        assert!(t.contains(
+            "Members: @ali (human), @ali-claude \"Claude\" (agent of @ali), \
+             @ali-codex \"Codex 'cli'\" (agent of @ali), @ali-ai (agent of @ali)\n"
+        ), "{t}");
     }
 
     #[test]

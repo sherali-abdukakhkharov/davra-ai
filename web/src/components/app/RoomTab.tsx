@@ -1,5 +1,5 @@
 import { ArrowUp, LoaderCircle } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { fill, usePrefs } from "@/lib/prefs";
 import { cn } from "@/lib/utils";
@@ -28,6 +28,10 @@ export function RoomTab({ project, initial, members, onPosted }: { project: Proj
   const [notice, setNotice] = useState<string | null>(null);
   const [fresh, setFresh] = useState<number | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const agentNames = useMemo(
+    () => new Map(members.filter((m) => m.kind === "agent" && m.display_name).map((m) => [m.handle, m.display_name])),
+    [members],
+  );
   const keepBottom = useRef(true);
   const restore = useRef<number | null>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -152,6 +156,7 @@ export function RoomTab({ project, initial, members, onPosted }: { project: Proj
                     id={m.id}
                     createdAt={m.created_at}
                     author={m.author}
+                    name={agentNames.get(m.author)}
                     trust={m.trust}
                     body={m.body}
                     kind={m.kind}

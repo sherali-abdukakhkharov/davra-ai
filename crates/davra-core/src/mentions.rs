@@ -9,6 +9,26 @@ fn is_handle_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.'
 }
 
+/// Longest display name, in characters.
+pub const MAX_NAME: usize = 40;
+
+/// Cleans a display name such as "Claude" or "Codex (laptop)": trims it,
+/// collapses whitespace, and rejects control characters and names over
+/// [`MAX_NAME`]. An empty name is `Ok(None)` (no name).
+pub fn normalize_name(raw: &str) -> Result<Option<String>, &'static str> {
+    if raw.chars().any(|c| c.is_control() && !c.is_whitespace()) {
+        return Err("no control characters");
+    }
+    let name = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if name.is_empty() {
+        return Ok(None);
+    }
+    if name.chars().count() > MAX_NAME {
+        return Err("up to 40 characters");
+    }
+    Ok(Some(name))
+}
+
 /// Normalises a handle: trims a leading `@`, lowercases, and rejects
 /// anything that is not a valid handle.
 pub fn normalize_handle(raw: &str) -> Option<String> {
@@ -64,6 +84,16 @@ mod tests {
             parse("@backend-ai bugun qilib ber, @Frontend ko'rib chiq. @backend-ai"),
             vec!["backend-ai", "frontend"]
         );
+    }
+
+    #[test]
+    fn names() {
+        assert_eq!(normalize_name("  Codex   (laptop) "), Ok(Some("Codex (laptop)".into())));
+        assert_eq!(normalize_name("Ǵulomning Claude’i"), Ok(Some("Ǵulomning Claude’i".into())));
+        assert_eq!(normalize_name("   "), Ok(None));
+        assert!(normalize_name("a\u{7}b").is_err());
+        assert!(normalize_name(&"x".repeat(41)).is_err());
+        assert_eq!(normalize_name(&"ş".repeat(40)).unwrap().unwrap().chars().count(), 40);
     }
 
     #[test]

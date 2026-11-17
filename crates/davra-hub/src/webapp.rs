@@ -563,6 +563,9 @@ pub async fn post(
 #[derive(Deserialize)]
 pub struct NewAgent {
     handle: String,
+    /// The agent's own name, e.g. "Claude" or "Codex"; the handle stays the id.
+    #[serde(default)]
+    name: Option<String>,
     #[serde(default)]
     roles: Vec<String>,
 }
@@ -570,6 +573,11 @@ pub struct NewAgent {
 #[derive(Serialize)]
 pub struct AgentResponse {
     agent: MemberItem,
+}
+
+fn agent_name(raw: &str) -> AppResult<Option<String>> {
+    davra_core::mentions::normalize_name(raw)
+        .map_err(|e| AppError::Field("name", e.into()))
 }
 
 fn clean_roles(raw: &[String]) -> Vec<String> {
@@ -600,14 +608,17 @@ pub async fn create_agent(
     let handle = normalize_handle(&b.handle)
         .ok_or_else(|| AppError::Field("handle", "use a–z, 0–9, - _ . (up to 64)".into()))?;
     let roles = clean_roles(&b.roles);
+    let name = agent_name(b.name.as_deref().unwrap_or(""))?;
     let id: Option<Uuid> = sqlx::query_scalar(
-        "insert into members (org_id, kind, handle, owner_id, roles) values ($1, 'agent', $2, $3, $4) \
+        "insert into members (org_id, kind, handle, owner_id, roles, display_name) \
+         values ($1, 'agent', $2, $3, $4, $5) \
          on conflict (org_id, handle) do nothing returning id",
     )
     .bind(p.org_id)
     .bind(&handle)
     .bind(caller.member_id)
     .bind(&roles)
+    .bind(&name)
     .fetch_optional(&state.pool)
     .await?;
     let id = id.ok_or_else(|| {
@@ -624,7 +635,7 @@ pub async fn create_agent(
         Some(caller.member_id),
         "agent.create",
         Some(&handle),
-        serde_json::json!({ "project": p.slug }),
+        serde_json::json!({ "project": p.slug, "name": name }),
     )
     .await?;
     Ok(Json(AgentResponse {
@@ -658,6 +669,43 @@ async fn manageable_agent(
             "only the agent's owner can do this".into(),
         ))
     }
+}
+
+#[derive(Deserialize)]
+pub struct NameBody {
+    name: String,
+}
+
+/// Renames an agent: its own name changes, the handle (what people @mention,
+/// and what old messages and handoffs refer to) stays.
+pub async fn set_name(
+    State(state): State<AppState>,
+    SessionUser(user): SessionUser,
+    Path((org, slug, handle)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    Json(b): Json<NameBody>,
+) -> AppResult<Json<AgentResponse>> {
+    require_csrf(&headers)?;
+    let (caller, p) = open_project(&state, user.id, &org, &slug).await?;
+    let id = manageable_agent(&state.pool, &caller, &p, &handle, false).await?;
+    let name = agent_name(&b.name)?;
+    sqlx::query("update members set display_name = $2 where id = $1")
+        .bind(id)
+        .bind(&name)
+        .execute(&state.pool)
+        .await?;
+    db::audit(
+        &state.pool,
+        Some(p.org_id),
+        Some(caller.member_id),
+        "agent.rename",
+        Some(&handle),
+        serde_json::json!({ "name": name }),
+    )
+    .await?;
+    Ok(Json(AgentResponse {
+        agent: agent_item(&state.pool, &p, caller.member_id, &handle).await?,
+    }))
 }
 
 #[derive(Deserialize)]
